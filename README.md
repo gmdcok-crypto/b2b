@@ -41,9 +41,9 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 3. **Generate Domain**으로 공개 주소를 만든다. 그 주소의 `/`가 구매 화면이고 `/health`가 API 상태다.
 4. Netlify를 함께 쓰면, Netlify `API_BASE`에 이 공개 주소를 넣고 Railway `CORS_ORIGINS`에 Netlify 주소를 넣는다.
 
-예: `CORS_ORIGINS=https://your-site.netlify.app`
+예: `CORS_ORIGINS=https://gstec.netlify.app`
 
-로컬 화면 주소 `http://127.0.0.1:8888`과 `http://localhost:8888`은 기본으로 허용한다. 그 밖의 출처는 `CORS_ORIGINS`에 있을 때만 브라우저 요청이 통과한다.
+`https://gstec.netlify.app`과 로컬 화면 주소 `http://127.0.0.1:8888`, `http://localhost:8888`은 기본으로 허용한다. 그 밖의 출처는 `CORS_ORIGINS`에 있을 때만 브라우저 요청이 통과한다.
 
 시작 명령은 다음이다.
 

@@ -15,7 +15,7 @@
 | REQ-005 | 일괄 등록 | 엑셀 등록 | 원문 요구 | 2026-11-01 | 등록 화면·API | 절차서 1장 |
 | REQ-006 | 출력 | A4 출력 | 원문 요구 | 2026-11-01 | 인쇄 HTML | 절차서 1장 |
 | REQ-007 | 클라이언트 | 모바일/PWA. 인증된 업무 데이터의 오프라인 편집은 제외 | 원문 요구 | 2026-11-01 | manifest, service worker | 절차서 1장·3.1 |
-| REQ-008 | 배포 | 화면은 Netlify. Railway는 `main` 저장소 루트 한 서비스에서 화면과 API를 함께 제공한다. Netlify를 쓸 때 `API_BASE`와 `CORS_ORIGINS`를 맞춘다 | 사용자 | 2026-11-01 | 운영·배포·CORS | 백엔드를 루트에 함께 둠 |
+| REQ-008 | 배포 | 화면은 https://gstec.netlify.app. Railway는 `main` 저장소 루트에서 화면과 API를 함께 제공하고 이 Netlify 출처를 허용한다 | 사용자 | 2026-11-01 | 운영·배포·CORS | Netlify 주소 확정 |
 
 ## 기본 제안 (미확정)
 
