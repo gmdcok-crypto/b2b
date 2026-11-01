@@ -1,0 +1,30 @@
+[project]
+name = "scm-b2b"
+version = "0.1.0"
+description = "구매·협력사 B2B 포털. 업무 기능은 정책 확정 후 단계적으로 구현한다."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn>=0.32",
+  "sqlalchemy>=2.0",
+  "alembic>=1.14",
+  "pydantic-settings>=2.6",
+  "pymysql>=1.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "httpx>=0.27",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
