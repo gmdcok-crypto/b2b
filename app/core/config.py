@@ -13,6 +13,21 @@ class Settings(BaseSettings):
     app_name: str = "SCM B2B Portal"
     database_url: str | None = None
     mysql_url: str | None = None
+    cors_origins: str = ""
+
+    def cors_origin_list(self) -> list[str]:
+        defaults = [
+            "http://localhost:8888",
+            "http://127.0.0.1:8888",
+            "http://localhost:5500",
+            "http://127.0.0.1:5500",
+        ]
+        extra = [item.strip().rstrip("/") for item in self.cors_origins.split(",") if item.strip()]
+        origins: list[str] = []
+        for origin in defaults + extra:
+            if origin not in origins:
+                origins.append(origin)
+        return origins
 
     def resolved_database_url(self) -> str | None:
         raw = (self.database_url or "").strip() or (self.mysql_url or "").strip()
