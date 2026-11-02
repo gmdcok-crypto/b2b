@@ -1,6 +1,9 @@
 (function () {
   const data = window.SAMPLE;
   const TITLES = { orders: "발주", prices: "단가", items: "품목", audit: "이력" };
+  const ITEM_GROUPS = ["원자재", "기자재", "가공품", "포장", "보전", "사출", "소모품"];
+  const ITEM_UNITS = ["EA", "M", "KG", "BOX"];
+  let itemSeq = 1;
   const state = {
     module: "orders",
     selectedId: data.orders[0].id,
@@ -93,6 +96,25 @@
         { label: "인쇄", run: printCurrent }
       ];
     }
+    if (state.module === "items") {
+      const item = selectedItem();
+      const inUse = !item || item.use !== "중지";
+      return [
+        { label: "조회", kind: "primary", run: () => toast(countText(filtered().length)) },
+        "|",
+        { label: "신규", run: newItem },
+        { label: "저장", enable: () => !!item, run: saveItem },
+        "|",
+        {
+          label: inUse ? "사용중지" : "사용재개",
+          kind: inUse ? "danger" : "",
+          enable: () => item && !item.draft,
+          run: () => setItemUse(inUse ? "중지" : "사용")
+        },
+        "|",
+        { label: "인쇄", enable: () => !!item && !item.draft, run: printCurrent }
+      ];
+    }
     return [
       { label: "조회", kind: "primary", run: () => toast(countText(filtered().length)) },
       "|",
@@ -124,7 +146,7 @@
       );
     } else {
       box.append(
-        field("작업", select("action", ["전체", "작성", "확정", "취소", "변경요청", "승인", "반려", "종료", "등록"], "전체")),
+        field("작업", select("action", ["전체", "작성", "확정", "취소", "변경요청", "승인", "반려", "종료", "등록", "수정", "사용중지", "사용재개"], "전체")),
         field("검색", searchInput("q", "대상, 사용자, 내용"))
       );
     }
@@ -211,12 +233,14 @@
         form.append(el("div", { class: "lab" }, field.label));
         const editable = field.edit && canEdit(record);
         const wrap = el("div", { class: "val" + (field.span ? " span" : "") + (editable ? " edit" : "") });
-        const input = el("input", {
-          value: fieldText(record, field, editable),
-          readonly: editable ? null : "readonly",
-          "data-field": field.key
-        });
-        if (editable) {
+        const input = field.options && editable
+          ? fieldSelect(record, field)
+          : el("input", {
+            value: fieldText(record, field, editable),
+            readonly: editable ? null : "readonly",
+            "data-field": field.key
+          });
+        if (editable && !field.options) {
           input.addEventListener("input", () => {
             record[field.key] = input.value;
             syncListRow(record);
@@ -451,16 +475,105 @@
         [{ label: "요청단가", key: "request", edit: true, money: true, span: true }]
       ];
     }
+    const units = ITEM_UNITS.slice();
+    const groups = ITEM_GROUPS.slice();
+    if (record.unit && !units.includes(record.unit)) units.unshift(record.unit);
+    if (record.group && !groups.includes(record.group)) groups.unshift(record.group);
     return [
       [
-        { label: "품목코드", key: "code" },
+        { label: "품목코드", key: "code", edit: !!record.draft },
         { label: "사용", key: "use" },
-        { label: "단위", key: "unit" },
-        { label: "분류", key: "group" }
+        { label: "단위", key: "unit", edit: true, options: units },
+        { label: "분류", key: "group", edit: true, options: groups }
       ],
-        [{ label: "품목명", key: "name", span: true }],
-        [{ label: "규격", key: "spec", span: true }]
+      [{ label: "품목명", key: "name", edit: true, span: true }],
+      [{ label: "규격", key: "spec", edit: true, span: true }]
     ];
+  }
+
+  function newItem() {
+    const current = selectedItem();
+    if (current && current.draft && !String(current.code || "").trim()) {
+      const input = $("composite").querySelector('[data-field="code"]');
+      if (input) input.focus();
+      return;
+    }
+    const item = {
+      tempId: "NEW-" + itemSeq++,
+      code: "",
+      name: "",
+      spec: "",
+      unit: "EA",
+      group: "원자재",
+      use: "사용",
+      draft: true
+    };
+    data.items.unshift(item);
+    state.filters = {};
+    renderCriteria();
+    state.selectedId = item.tempId;
+    renderWorkspace();
+    toast("품목 등록을 열었습니다. 코드를 입력한 뒤 저장하세요.");
+    const input = $("composite").querySelector('[data-field="code"]');
+    if (input) input.focus();
+  }
+
+  function saveItem() {
+    const item = selectedItem();
+    if (!item) return;
+    const code = normalizeItemCode(item.code);
+    if (!code) {
+      toast("품목코드를 입력하세요.");
+      return;
+    }
+    if (code.length > 20 || !/^[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(code)) {
+      toast("품목코드는 영문 대문자, 숫자, 하이픈만 20자 이내로 입력하세요.");
+      return;
+    }
+    const duplicate = data.items.some((other) => other !== item && normalizeItemCode(other.code) === code);
+    if (duplicate) {
+      toast("이미 있는 품목코드입니다.");
+      return;
+    }
+    const name = String(item.name || "").trim();
+    if (!name) {
+      toast("품명을 입력하세요.");
+      return;
+    }
+    if (!item.unit) {
+      toast("단위를 선택하세요.");
+      return;
+    }
+    const creating = !!item.draft;
+    item.code = code;
+    item.name = name;
+    item.spec = String(item.spec || "").trim();
+    item.draft = false;
+    delete item.tempId;
+    state.selectedId = item.code;
+    pushAudit(creating ? "등록" : "수정", item.code, "", item.name, item.spec);
+    paintList();
+    paintDetail();
+    toast(creating ? "품목을 등록했습니다. 서버 저장은 아직 연결되지 않았습니다." : "품목을 수정했습니다. 서버 저장은 아직 연결되지 않았습니다.");
+  }
+
+  function setItemUse(next) {
+    const item = selectedItem();
+    if (!item || item.draft) return;
+    const before = item.use;
+    if (before === next) return;
+    item.use = next;
+    pushAudit(next === "중지" ? "사용중지" : "사용재개", item.code, before, next, "");
+    const stillVisible = filtered().some((row) => row.code === item.code);
+    if (!stillVisible) {
+      state.selectedId = firstId(filtered());
+      paintList();
+      paintDetail();
+    } else {
+      syncListRow(item);
+      paintDetail();
+    }
+    toast(next === "중지" ? "사용 중지로 바꿨습니다. 기존 발주와 단가는 유지됩니다." : "사용으로 바꿨습니다.");
   }
 
   function newOrder() {
@@ -628,6 +741,13 @@
     } else if (state.module === "prices") {
       cells[3].textContent = money(record.price);
       cells[5].replaceChildren(stateNode(record.status));
+    } else if (state.module === "items") {
+      cells[0].textContent = record.code;
+      cells[1].textContent = record.name;
+      cells[2].textContent = record.spec;
+      cells[3].textContent = record.unit;
+      cells[4].textContent = record.group;
+      cells[5].replaceChildren(stateNode(record.use));
     }
   }
 
@@ -644,7 +764,7 @@
     let text = TITLES[state.module];
     if (record && state.module === "orders") text = record.id + " 발주";
     else if (record && state.module === "prices") text = record.code + " 단가";
-    else if (record && state.module === "items") text = record.code + " 품목";
+    else if (record && state.module === "items") text = (record.code || "신규") + " 품목";
     else if (state.module === "audit") text = "변경 이력";
     tab.replaceChildren(el("span", {}, text));
   }
@@ -655,7 +775,7 @@
     let left = rows.length + "건";
     if (record && state.module === "orders") left += "  ·  " + record.id + "  ·  공급가액 " + money(orderAmount(record));
     else if (record && state.module === "prices") left += "  ·  " + record.code + "  ·  " + money(record.price);
-    else if (record && state.module === "items") left += "  ·  " + record.code;
+    else if (record && state.module === "items") left += "  ·  " + (record.code || "신규");
     $("statusbar").replaceChildren(
       el("span", {}, left),
       el("span", { class: "msg" }, state.message),
@@ -799,13 +919,32 @@
   function canEdit(record) {
     if (state.module === "orders") return record.status === "작성";
     if (state.module === "prices") return record.status === "적용중";
+    if (state.module === "items") return true;
     return false;
   }
   function selectedRecord() {
     if (state.module === "orders") return selectedOrder();
     if (state.module === "prices") return selectedPrice();
-    if (state.module === "items") return data.items.find((item) => item.code === state.selectedId) || null;
+    if (state.module === "items") return selectedItem();
     return null;
+  }
+  function selectedItem() {
+    return data.items.find((item) => (item.draft ? item.tempId : item.code) === state.selectedId) || null;
+  }
+  function normalizeItemCode(value) {
+    return String(value || "").trim().toUpperCase();
+  }
+  function fieldSelect(record, field) {
+    const node = el("select", { "data-field": field.key });
+    field.options.forEach((option) => {
+      node.append(el("option", { value: option, selected: option === record[field.key] ? "selected" : null }, option));
+    });
+    node.addEventListener("change", () => {
+      record[field.key] = node.value;
+      syncListRow(record);
+      renderStatus();
+    });
+    return node;
   }
   function selectedOrder() { return data.orders.find((order) => order.id === state.selectedId) || null; }
   function selectedPrice() { return data.prices.find((price) => price.id === state.selectedId) || null; }
@@ -818,7 +957,7 @@
   function rowId(row) {
     if (state.module === "orders") return row.id;
     if (state.module === "prices") return row.id;
-    if (state.module === "items") return row.code;
+    if (state.module === "items") return row.draft ? row.tempId : row.code;
     return row.at + row.target;
   }
   function firstId(rows) { return rows.length ? rowId(rows[0]) : ""; }

@@ -284,14 +284,16 @@ button:disabled { cursor: default; }
 }
 .val { display: flex; background: var(--lock); }
 .val.edit { background: var(--edit); }
-.val input {
+.val input, .val select {
   width: 100%;
   min-width: 0;
+  height: 100%;
   border: 0;
   background: transparent;
   padding: 0 8px;
+  font: inherit;
 }
-.val input:focus { outline: none; background: #fff; box-shadow: inset 0 0 0 2px var(--focus); }
+.val input:focus, .val select:focus { outline: none; background: #fff; box-shadow: inset 0 0 0 2px var(--focus); }
 .val input[readonly] { color: var(--ink); }
 .val.span { grid-column: 2 / -1; }
 
