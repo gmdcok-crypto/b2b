@@ -9,6 +9,9 @@ def test_netlify_shell_uses_relative_assets() -> None:
     assert 'href="css/app.css"' in html
     assert 'src="config.js"' in html
     assert 'src="js/app.js"' in html
+    assert 'rel="manifest"' in html
+    assert (ROOT / "web" / "sw.js").is_file()
+    assert (ROOT / "web" / "manifest.webmanifest").is_file()
     assert "url_for" not in html
     assert (ROOT / "web" / "css" / "app.css").is_file()
     assert (ROOT / "web" / "js" / "app.js").is_file()

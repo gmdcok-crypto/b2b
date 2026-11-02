@@ -1,0 +1,14 @@
+{
+  "name": "구매 포털",
+  "short_name": "구매포털",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#d3dde5",
+  "theme_color": "#12324d",
+  "lang": "ko",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

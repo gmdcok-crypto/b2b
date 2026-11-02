@@ -1,3 +1,4 @@
+import mimetypes
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -6,7 +7,10 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
+from app.routers.auth import router as auth_router
 from app.routers.health import router as health_router
+
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
@@ -19,6 +23,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 app.include_router(health_router)
+app.include_router(auth_router)
 app.mount(
     "/",
     StaticFiles(directory=Path(__file__).resolve().parents[1] / "web", html=True),

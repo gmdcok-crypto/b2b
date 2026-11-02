@@ -82,6 +82,61 @@ button:disabled { cursor: default; }
 }
 .session strong { font-weight: 650; color: #fff; }
 .session-key { color: #8eabbf; }
+.session-btn {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: transparent;
+  color: #fff;
+}
+.session-btn:hover { background: rgba(255, 255, 255, 0.08); }
+html.boot .app { visibility: hidden; }
+.login {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--desktop);
+}
+.login[hidden] { display: none; }
+.login-card {
+  width: min(360px, calc(100% - 32px));
+  background: #fff;
+  border: 1px solid var(--line-strong);
+}
+.login-card h1 {
+  margin: 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 650;
+}
+.login-card label {
+  display: grid;
+  gap: 4px;
+  margin: 12px 14px 0;
+  color: #31485b;
+  font-size: 12px;
+}
+.login-card input {
+  height: 28px;
+  border: 1px solid #b7c3ce;
+  padding: 0 8px;
+  background: var(--edit);
+}
+.login-error {
+  min-height: 18px;
+  margin: 8px 14px 0;
+  color: var(--stop);
+  font-size: 12px;
+}
+.login-card .btn { margin: 8px 14px 14px; }
 .sep { width: 1px; height: 12px; background: rgba(255, 255, 255, 0.22); }
 
 .body { flex: 1; min-height: 0; display: flex; }
@@ -435,7 +490,7 @@ button:disabled { cursor: default; }
 @media print {
   @page { size: A4; margin: 12mm; }
   body { background: #fff; }
-  .app { display: none !important; }
+  .app, .login { display: none !important; }
   .print-root { display: block; color: #000; }
   .print-root h1 { margin: 0 0 4px; text-align: center; font-size: 22px; letter-spacing: 0.4em; font-weight: 700; }
   .print-meta { display: flex; justify-content: space-between; margin: 0 0 8px; font-size: 12px; }

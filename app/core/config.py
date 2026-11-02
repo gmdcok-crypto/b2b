@@ -6,7 +6,7 @@ from app.db.url import to_sqlalchemy_url
 
 
 class Settings(BaseSettings):
-    """실행 설정. 인증 방식은 설계 단계에서 확정한다."""
+    """실행 설정. 인증은 JWT 액세스 토큰이다."""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -14,6 +14,14 @@ class Settings(BaseSettings):
     database_url: str | None = None
     mysql_url: str | None = None
     cors_origins: str = ""
+    jwt_secret: str = ""
+    jwt_expire_minutes: int = 720
+    auth_username: str = ""
+    auth_password: str = ""
+    auth_display_name: str = ""
+
+    def auth_ready(self) -> bool:
+        return bool(self.jwt_secret.strip() and len(self.jwt_secret.strip()) >= 32 and self.auth_username.strip() and self.auth_password)
 
     def cors_origin_list(self) -> list[str]:
         defaults = [

@@ -27,7 +27,12 @@
   });
 
   openModule("orders");
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
   checkApi();
+  const logout = $("logout");
+  if (logout) logout.addEventListener("click", logoutSession);
+  const loginForm = $("login-form");
+  if (loginForm) loginForm.addEventListener("submit", submitLogin);
 
   function openModule(name) {
     state.module = name;
@@ -1342,19 +1347,100 @@
 
   function checkApi() {
     const base = apiBase();
-    if (!base) {
-      state.api = "API 주소 없음";
-      renderStatus();
-      return;
-    }
     fetch(base + "/health")
       .then((response) => {
         state.api = response.ok ? "API 연결" : "API 응답 오류";
         renderStatus();
       })
       .catch(() => {
-        state.api = "API 연결 안 됨";
+        state.api = base ? "API 연결 안 됨" : "API 주소 없음";
         renderStatus();
+      });
+    fetch(base + "/auth/status")
+      .then(async (response) => {
+        if (!response.ok) return { configured: false };
+        return response.json().catch(() => ({ configured: false }));
+      })
+      .catch(() => ({ configured: false }))
+      .then((body) => {
+        if (body && body.configured) startAuth();
+        else finishBoot();
+      });
+  }
+
+  function finishBoot() {
+    document.documentElement.classList.remove("boot");
+  }
+
+  function startAuth() {
+    const token = sessionStorage.getItem("scm.accessToken");
+    if (!token) {
+      showLogin();
+      return;
+    }
+    fetch(apiBase() + "/auth/me", { headers: { Authorization: "Bearer " + token } })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("unauthorized");
+        return response.json();
+      })
+      .then((me) => enterSession(me))
+      .catch(() => {
+        sessionStorage.removeItem("scm.accessToken");
+        showLogin();
+      });
+  }
+
+  function showLogin() {
+    const panel = $("login");
+    if (panel) panel.hidden = false;
+    finishBoot();
+    const input = document.querySelector("#login-form input[name=username]");
+    if (input) input.focus();
+  }
+
+  function enterSession(me) {
+    const panel = $("login");
+    if (panel) panel.hidden = true;
+    const name = $("session-name");
+    if (name) name.textContent = me.name || me.username || "";
+    const button = $("logout");
+    if (button) button.hidden = false;
+    const error = $("login-error");
+    if (error) error.textContent = "";
+    finishBoot();
+  }
+
+  function logoutSession() {
+    sessionStorage.removeItem("scm.accessToken");
+    const name = $("session-name");
+    if (name) name.textContent = "김구매";
+    const button = $("logout");
+    if (button) button.hidden = true;
+    showLogin();
+  }
+
+  function submitLogin(event) {
+    event.preventDefault();
+    const form = event.target;
+    const username = String(new FormData(form).get("username") || "");
+    const password = String(new FormData(form).get("password") || "");
+    const error = $("login-error");
+    fetch(apiBase() + "/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ username: username, password: password })
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (error) error.textContent = payload.message || "로그인하지 못했습니다.";
+          return;
+        }
+        sessionStorage.setItem("scm.accessToken", payload.access_token);
+        enterSession(payload);
+      })
+      .catch(() => {
+        if (error) error.textContent = "인증 서버에 연결하지 못했습니다.";
       });
   }
 

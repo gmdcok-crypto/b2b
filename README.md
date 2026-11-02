@@ -17,6 +17,10 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 화면은 `http://127.0.0.1:8000` 이다. `GET /health`는 같은 주소에서 응답한다.
 
+화면은 설치형 PWA다. `manifest.webmanifest`와 `sw.js`가 화면 껍데기를 보관한다. 발주·단가 같은 업무 데이터는 오프라인에서 수정하지 않는다.
+
+인증은 JWT 액세스 토큰이다. `JWT_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD`가 모두 있으면 로그인을 요구하고, 토큰은 `Authorization: Bearer`로 보낸다. 하나라도 없으면 로그인 없이 샘플 화면을 연다. 계정 테이블과 리프레시 토큰은 아직 없다.
+
 - `GET /health`는 데이터베이스를 조회하지 않는다.
 - `DATABASE_URL` 또는 `MYSQL_URL`이 있을 때만 DB 세션을 만든다.
 
