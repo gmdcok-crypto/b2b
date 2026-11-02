@@ -89,6 +89,9 @@
       return [
         { label: "조회", kind: "primary", run: () => toast(countText(filtered().length)) },
         "|",
+        { label: "신규", run: newPrice },
+        { label: "저장", enable: () => price && price.draft, run: savePrice },
+        "|",
         { label: "변경요청", enable: () => price && price.status === "적용중", run: requestPrice },
         { label: "승인", enable: () => price && price.status === "승인대기", run: () => decidePrice("승인") },
         { label: "반려", kind: "danger", enable: () => price && price.status === "승인대기", run: () => decidePrice("반려") },
@@ -134,7 +137,7 @@
       );
     } else if (state.module === "prices") {
       box.append(
-        field("상태", select("status", ["전체", "적용중", "승인대기", "종료"], "전체")),
+        field("상태", select("status", ["전체", "작성", "적용중", "승인대기", "종료"], "전체")),
         field("협력사", textInput("vendor", "vendor", "")),
         field("검색", searchInput("q", "품목코드, 품목명"))
       );
@@ -235,11 +238,7 @@
         const wrap = el("div", { class: "val" + (field.span ? " span" : "") + (editable ? " edit" : "") });
         const input = field.options && editable
           ? fieldSelect(record, field)
-          : el("input", {
-            value: fieldText(record, field, editable),
-            readonly: editable ? null : "readonly",
-            "data-field": field.key
-          });
+          : el("input", fieldInputAttrs(record, field, editable));
         if (editable && !field.options) {
           input.addEventListener("input", () => {
             record[field.key] = input.value;
@@ -459,21 +458,26 @@
       ];
     }
     if (state.module === "prices") {
-      return [
+      const drafting = !!record.draft;
+      const rows = [
         [
-          { label: "품목코드", key: "code" },
+          { label: "단가번호", key: "id" },
           { label: "상태", key: "status" },
-          { label: "적용시작", key: "from" },
-          { label: "적용종료", key: "to" }
+          { label: "적용시작", key: "from", edit: drafting, date: true },
+          { label: "적용종료", key: "to", edit: drafting, date: true }
         ],
         [
+          { label: "품목코드", key: "code", edit: drafting, options: priceItemCodes(record), allowEmpty: true, after: refreshPriceItem },
           { label: "품목명", key: "name" },
           { label: "규격", key: "spec" },
-          { label: "협력사", key: "vendor" },
-          { label: "단가", key: "price", money: true }
+          { label: "단위", key: "unit" }
         ],
-        [{ label: "요청단가", key: "request", edit: true, money: true, span: true }]
+        [{ label: "협력사", key: "vendor", edit: drafting, span: true }],
+        [{ label: "계약단가", key: "price", edit: drafting, money: true, span: true }],
+        [{ label: "비고", key: "note", edit: drafting, span: true }]
       ];
+      if (!drafting) rows.push([{ label: "요청단가", key: "request", edit: record.status === "적용중", money: true, span: true }]);
+      return rows;
     }
     const units = ITEM_UNITS.slice();
     const groups = ITEM_GROUPS.slice();
@@ -489,6 +493,129 @@
       [{ label: "품목명", key: "name", edit: true, span: true }],
       [{ label: "규격", key: "spec", edit: true, span: true }]
     ];
+  }
+
+  function newPrice() {
+    const current = selectedPrice();
+    if (current && current.draft && !current.code) {
+      const input = $("composite").querySelector('[data-field="code"]');
+      if (input) input.focus();
+      return;
+    }
+    const price = {
+      id: nextPriceId(),
+      code: "",
+      name: "",
+      spec: "",
+      unit: "",
+      vendor: "",
+      price: "",
+      request: "",
+      from: formatDate(new Date()),
+      to: "",
+      note: "",
+      status: "작성",
+      draft: true,
+      history: []
+    };
+    data.prices.unshift(price);
+    state.filters = {};
+    renderCriteria();
+    state.selectedId = price.id;
+    renderWorkspace();
+    toast("계약단가 등록을 열었습니다. 품목과 단가를 입력한 뒤 저장하세요.");
+    const input = $("composite").querySelector('[data-field="code"]');
+    if (input) input.focus();
+  }
+
+  function savePrice() {
+    const price = selectedPrice();
+    if (!price || !price.draft) return;
+    const item = data.items.find((row) => row.code === price.code);
+    if (!price.code || !item) {
+      toast("품목을 선택하세요.");
+      return;
+    }
+    if (item.use !== "사용") {
+      toast("사용 중인 품목만 계약단가를 등록할 수 있습니다.");
+      return;
+    }
+    const vendor = String(price.vendor || "").trim();
+    if (!vendor) {
+      toast("협력사를 입력하세요.");
+      return;
+    }
+    const amount = String(price.price == null ? "" : price.price).replace(/,/g, "").trim();
+    if (!amount) {
+      toast("계약단가를 입력하세요.");
+      return;
+    }
+    if (!/^[0-9]+$/.test(amount) || Number(amount) <= 0) {
+      toast("계약단가는 1원 이상의 정수로 입력하세요.");
+      return;
+    }
+    if (!isIsoDate(price.from)) {
+      toast("적용시작일을 입력하세요.");
+      return;
+    }
+    if (price.to && !isIsoDate(price.to)) {
+      toast("적용종료일을 입력하세요.");
+      return;
+    }
+    if (price.to && price.to < price.from) {
+      toast("적용종료일은 적용시작일 이후로 입력하세요.");
+      return;
+    }
+    applyPriceItem(price);
+    price.vendor = vendor;
+    price.price = Number(amount);
+    price.note = String(price.note || "").trim();
+    price.request = "";
+    price.status = "적용중";
+    price.draft = false;
+    price.history.unshift({
+      date: formatDate(new Date()),
+      type: "등록",
+      before: "",
+      after: price.price,
+      by: "김구매",
+      note: price.note
+    });
+    pushAudit("등록", price.code, "", money(price.price), price.vendor);
+    paintList();
+    paintDetail();
+    toast("계약단가를 등록했습니다. 서버 저장은 아직 연결되지 않았습니다.");
+  }
+
+  function applyPriceItem(record) {
+    const item = data.items.find((row) => row.code === record.code);
+    record.name = item ? item.name : "";
+    record.spec = item ? item.spec : "";
+    record.unit = item ? item.unit : "";
+  }
+
+  function refreshPriceItem(record) {
+    applyPriceItem(record);
+    syncListRow(record);
+    paintDetail();
+  }
+
+  function priceItemCodes(record) {
+    return data.items
+      .filter((item) => item.use === "사용" || item.code === record.code)
+      .map((item) => item.code)
+      .sort();
+  }
+
+  function nextPriceId() {
+    const nums = data.prices.map((price) => Number(String(price.id).replace(/\D/g, ""))).filter((num) => !Number.isNaN(num));
+    return "PR-" + String(Math.max(0, ...nums) + 1);
+  }
+
+  function isIsoDate(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return false;
+    const parsed = new Date(value + "T00:00:00");
+    return !Number.isNaN(parsed.getTime()) && formatDate(parsed) === value;
   }
 
   function newItem() {
@@ -739,7 +866,11 @@
       cells[3].replaceChildren(stateNode(record.status));
       cells[4].textContent = money(orderAmount(record));
     } else if (state.module === "prices") {
+      cells[0].textContent = record.code;
+      cells[1].textContent = record.name;
+      cells[2].textContent = record.vendor;
       cells[3].textContent = money(record.price);
+      cells[4].textContent = record.from;
       cells[5].replaceChildren(stateNode(record.status));
     } else if (state.module === "items") {
       cells[0].textContent = record.code;
@@ -918,7 +1049,7 @@
   }
   function canEdit(record) {
     if (state.module === "orders") return record.status === "작성";
-    if (state.module === "prices") return record.status === "적용중";
+    if (state.module === "prices") return !!record.draft || record.status === "적용중";
     if (state.module === "items") return true;
     return false;
   }
@@ -936,15 +1067,28 @@
   }
   function fieldSelect(record, field) {
     const node = el("select", { "data-field": field.key });
-    field.options.forEach((option) => {
-      node.append(el("option", { value: option, selected: option === record[field.key] ? "selected" : null }, option));
+    const options = field.allowEmpty ? [""].concat(field.options) : field.options.slice();
+    options.forEach((option) => {
+      const label = option === "" ? "선택" : option;
+      node.append(el("option", { value: option, selected: option === (record[field.key] || "") ? "selected" : null }, label));
     });
     node.addEventListener("change", () => {
       record[field.key] = node.value;
+      if (typeof field.after === "function") field.after(record);
       syncListRow(record);
       renderStatus();
     });
     return node;
+  }
+  function fieldInputAttrs(record, field, editable) {
+    const attrs = {
+      value: editable && field.date ? show(record[field.key]) : fieldText(record, field, editable),
+      readonly: editable ? null : "readonly",
+      "data-field": field.key
+    };
+    if (editable && field.date) attrs.type = "date";
+    if (editable && field.money) attrs.inputMode = "decimal";
+    return attrs;
   }
   function selectedOrder() { return data.orders.find((order) => order.id === state.selectedId) || null; }
   function selectedPrice() { return data.prices.find((price) => price.id === state.selectedId) || null; }
@@ -1023,8 +1167,12 @@
     return Number(value || 0).toLocaleString("ko-KR", { maximumFractionDigits: 2 });
   }
   function fieldText(record, field, editable) {
-    const value = record[field.key];
-    if ((value == null || value === "") && field.key === "to") return "—";
+    let value = record[field.key];
+    if (field.key === "unit" && state.module === "prices" && (value == null || value === "")) {
+      const item = data.items.find((row) => row.code === record.code);
+      value = item ? item.unit : "";
+    }
+    if ((value == null || value === "") && field.key === "to" && !editable) return "—";
     if (field.money && !editable && value !== "" && value != null) return money(value);
     return show(value);
   }
