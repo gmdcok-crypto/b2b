@@ -318,6 +318,14 @@ window.SAMPLE = {
     { code: "CLN-ALK20", name: "알칼리 세척제", spec: "20L", unit: "EA", group: "소모품", use: "사용" },
     { code: "PLT-11", name: "목재 파렛트", spec: "1100×1100", unit: "EA", group: "포장", use: "사용" }
   ],
+  vendors: [
+    { code: "V-HB", name: "(주)한빛금속", bizNo: "101-81-23456", contact: "이금속", phone: "02-620-1001", email: "lee@hb-metal.example", use: "사용", savedName: "(주)한빛금속" },
+    { code: "V-SJ", name: "세진정밀(주)", bizNo: "202-81-34567", contact: "박정밀", phone: "031-720-2200", email: "park@sj-prec.example", use: "사용", savedName: "세진정밀(주)" },
+    { code: "V-DS", name: "대성포장", bizNo: "303-81-45678", contact: "최포장", phone: "031-450-3300", email: "choi@ds-pack.example", use: "사용", savedName: "대성포장" },
+    { code: "V-KR", name: "한국베어링", bizNo: "404-81-56789", contact: "정베어링", phone: "02-580-4400", email: "jung@kr-brg.example", use: "사용", savedName: "한국베어링" },
+    { code: "V-OS", name: "오성케미칼", bizNo: "505-81-67890", contact: "한케미", phone: "032-860-5500", email: "han@os-chem.example", use: "사용", savedName: "오성케미칼" },
+    { code: "V-MJ", name: "명진플라스틱", bizNo: "606-81-78901", contact: "서사출", phone: "031-940-6600", email: "seo@mj-plas.example", use: "사용", savedName: "명진플라스틱" }
+  ],
   audit: [
     { at: "2026-11-01 09:12", user: "김구매", action: "작성", target: "PO-202611-0142", before: "", after: "작성", note: "정기 발주" },
     { at: "2026-11-01 08:41", user: "(주)한빛금속", action: "변경요청", target: "SS-304-P15", before: "9,200", after: "9,600", note: "니켈 시세" },

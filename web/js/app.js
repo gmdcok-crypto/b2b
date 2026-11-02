@@ -1,9 +1,10 @@
 (function () {
   const data = window.SAMPLE;
-  const TITLES = { orders: "발주", prices: "단가", items: "품목", audit: "이력" };
+  const TITLES = { orders: "발주", prices: "단가", items: "품목", vendors: "협력사", audit: "이력" };
   const ITEM_GROUPS = ["원자재", "기자재", "가공품", "포장", "보전", "사출", "소모품"];
   const ITEM_UNITS = ["EA", "M", "KG", "BOX"];
   let itemSeq = 1;
+  let vendorSeq = 1;
   const state = {
     module: "orders",
     selectedId: data.orders[0].id,
@@ -32,7 +33,7 @@
     state.module = name;
     state.message = "";
     state.sortKey = name === "orders" ? "date" : name === "audit" ? "at" : "code";
-    state.sortDir = name === "prices" || name === "items" ? "asc" : "desc";
+    state.sortDir = name === "prices" || name === "items" || name === "vendors" ? "asc" : "desc";
     document.querySelectorAll(".nav-item").forEach((button) => {
       button.classList.toggle("is-active", button.dataset.module === name);
     });
@@ -118,6 +119,25 @@
         { label: "인쇄", enable: () => !!item && !item.draft, run: printCurrent }
       ];
     }
+    if (state.module === "vendors") {
+      const vendor = selectedVendor();
+      const inUse = !vendor || vendor.use !== "중지";
+      return [
+        { label: "조회", kind: "primary", run: () => toast(countText(filtered().length)) },
+        "|",
+        { label: "신규", run: newVendor },
+        { label: "저장", enable: () => !!vendor, run: saveVendor },
+        "|",
+        {
+          label: inUse ? "사용중지" : "사용재개",
+          kind: inUse ? "danger" : "",
+          enable: () => vendor && !vendor.draft,
+          run: () => setVendorUse(inUse ? "중지" : "사용")
+        },
+        "|",
+        { label: "인쇄", enable: () => !!vendor && !vendor.draft, run: printCurrent }
+      ];
+    }
     return [
       { label: "조회", kind: "primary", run: () => toast(countText(filtered().length)) },
       "|",
@@ -146,6 +166,11 @@
         field("사용", select("use", ["전체", "사용", "중지"], "전체")),
         field("분류", select("group", ["전체", "원자재", "기자재", "가공품", "포장", "보전", "사출", "소모품"], "전체")),
         field("검색", searchInput("q", "품목코드, 품목명, 규격"))
+      );
+    } else if (state.module === "vendors") {
+      box.append(
+        field("사용", select("use", ["전체", "사용", "중지"], "전체")),
+        field("검색", searchInput("q", "협력사코드, 협력사명, 담당자"))
       );
     } else {
       box.append(
@@ -394,6 +419,16 @@
         { key: "use", label: "사용", width: "64px", render: (row) => stateNode(row.use) }
       ];
     }
+    if (state.module === "vendors") {
+      return [
+        { key: "code", label: "협력사코드", width: "108px" },
+        { key: "name", label: "협력사명" },
+        { key: "bizNo", label: "사업자번호", width: "120px" },
+        { key: "contact", label: "담당자", width: "88px" },
+        { key: "phone", label: "전화", width: "120px" },
+        { key: "use", label: "사용", width: "64px", render: (row) => stateNode(row.use) }
+      ];
+    }
     return [
       { key: "at", label: "일시", width: "140px" },
       { key: "user", label: "사용자", width: "120px" },
@@ -430,6 +465,15 @@
         { label: "내용", render: (row) => row.note }
       ];
     }
+    if (state.module === "vendors") {
+      return [
+        { label: "품목코드", width: "124px", render: (row) => row.code },
+        { label: "품목명", render: (row) => row.name },
+        { label: "계약단가", width: "100px", align: "num", render: (row) => money(row.price) },
+        { label: "적용시작", width: "110px", render: (row) => row.from },
+        { label: "상태", width: "84px", render: (row) => stateNode(row.status) }
+      ];
+    }
     return [
       { label: "협력사", render: (row) => row.vendor },
       { label: "계약단가", width: "100px", align: "num", render: (row) => money(row.price) },
@@ -449,7 +493,7 @@
           { label: "납기일", key: "due", edit: true }
         ],
         [
-          { label: "협력사", key: "vendor", edit: true },
+          { label: "협력사", key: "vendor", edit: true, options: vendorNames(record.vendor), allowEmpty: true },
           { label: "담당", key: "buyer", edit: true },
           { label: "통화", key: "currency" },
           { label: "부가세", key: "vat" }
@@ -472,12 +516,25 @@
           { label: "규격", key: "spec" },
           { label: "단위", key: "unit" }
         ],
-        [{ label: "협력사", key: "vendor", edit: drafting, span: true }],
+        [{ label: "협력사", key: "vendor", edit: drafting, options: vendorNames(record.vendor), allowEmpty: true, span: true }],
         [{ label: "계약단가", key: "price", edit: drafting, money: true, span: true }],
         [{ label: "비고", key: "note", edit: drafting, span: true }]
       ];
       if (!drafting) rows.push([{ label: "요청단가", key: "request", edit: record.status === "적용중", money: true, span: true }]);
       return rows;
+    }
+    if (state.module === "vendors") {
+      return [
+        [
+          { label: "협력사코드", key: "code", edit: !!record.draft },
+          { label: "사용", key: "use" },
+          { label: "사업자번호", key: "bizNo", edit: true },
+          { label: "전화", key: "phone", edit: true }
+        ],
+        [{ label: "협력사명", key: "name", edit: true, span: true }],
+        [{ label: "담당자", key: "contact", edit: true, span: true }],
+        [{ label: "이메일", key: "email", edit: true, span: true }]
+      ];
     }
     const units = ITEM_UNITS.slice();
     const groups = ITEM_GROUPS.slice();
@@ -541,8 +598,9 @@
       return;
     }
     const vendor = String(price.vendor || "").trim();
-    if (!vendor) {
-      toast("협력사를 입력하세요.");
+    const supplier = data.vendors.find((row) => row.name === vendor && row.use === "사용" && !row.draft);
+    if (!vendor || !supplier) {
+      toast("사용 중인 협력사를 선택하세요.");
       return;
     }
     const amount = String(price.price == null ? "" : price.price).replace(/,/g, "").trim();
@@ -616,6 +674,134 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return false;
     const parsed = new Date(value + "T00:00:00");
     return !Number.isNaN(parsed.getTime()) && formatDate(parsed) === value;
+  }
+
+  function newVendor() {
+    const current = selectedVendor();
+    if (current && current.draft && !String(current.code || "").trim()) {
+      const input = $("composite").querySelector('[data-field="code"]');
+      if (input) input.focus();
+      return;
+    }
+    const vendor = {
+      tempId: "VNEW-" + vendorSeq++,
+      code: "",
+      name: "",
+      bizNo: "",
+      contact: "",
+      phone: "",
+      email: "",
+      use: "사용",
+      draft: true
+    };
+    data.vendors.unshift(vendor);
+    state.filters = {};
+    renderCriteria();
+    state.selectedId = vendor.tempId;
+    renderWorkspace();
+    toast("협력사 등록을 열었습니다. 코드를 입력한 뒤 저장하세요.");
+    const input = $("composite").querySelector('[data-field="code"]');
+    if (input) input.focus();
+  }
+
+  function saveVendor() {
+    const vendor = selectedVendor();
+    if (!vendor) return;
+    const code = normalizeItemCode(vendor.code);
+    if (!code) {
+      toast("협력사코드를 입력하세요.");
+      return;
+    }
+    if (code.length > 20 || !/^[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(code)) {
+      toast("협력사코드는 영문 대문자, 숫자, 하이픈만 20자 이내로 입력하세요.");
+      return;
+    }
+    if (data.vendors.some((other) => other !== vendor && normalizeItemCode(other.code) === code)) {
+      toast("이미 있는 협력사코드입니다.");
+      return;
+    }
+    const name = String(vendor.name || "").trim();
+    if (!name) {
+      toast("협력사명을 입력하세요.");
+      return;
+    }
+    if (data.vendors.some((other) => other !== vendor && other.name === name)) {
+      toast("이미 있는 협력사명입니다.");
+      return;
+    }
+    const bizNo = normalizeBizNo(vendor.bizNo);
+    if (bizNo == null) {
+      toast("사업자번호는 10자리 숫자로 입력하세요.");
+      return;
+    }
+    if (bizNo && data.vendors.some((other) => other !== vendor && other.bizNo === bizNo)) {
+      toast("이미 있는 사업자번호입니다.");
+      return;
+    }
+    const email = String(vendor.email || "").trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast("이메일 형식을 확인하세요.");
+      return;
+    }
+    const creating = !!vendor.draft;
+    const previous = vendor.savedName || "";
+    vendor.code = code;
+    vendor.name = name;
+    vendor.bizNo = bizNo;
+    vendor.contact = String(vendor.contact || "").trim();
+    vendor.phone = String(vendor.phone || "").trim();
+    vendor.email = email;
+    if (!creating && previous && previous !== name) {
+      data.orders.forEach((order) => {
+        if (order.vendor === previous) order.vendor = name;
+      });
+      data.prices.forEach((price) => {
+        if (price.vendor === previous) price.vendor = name;
+      });
+    }
+    vendor.savedName = name;
+    vendor.draft = false;
+    delete vendor.tempId;
+    state.selectedId = vendor.code;
+    pushAudit(creating ? "등록" : "수정", vendor.code, previous, vendor.name, vendor.bizNo);
+    paintList();
+    paintDetail();
+    toast(creating ? "협력사를 등록했습니다. 서버 저장은 아직 연결되지 않았습니다." : "협력사를 수정했습니다. 서버 저장은 아직 연결되지 않았습니다.");
+  }
+
+  function setVendorUse(next) {
+    const vendor = selectedVendor();
+    if (!vendor || vendor.draft) return;
+    if (vendor.use === next) return;
+    const before = vendor.use;
+    vendor.use = next;
+    pushAudit(next === "중지" ? "사용중지" : "사용재개", vendor.code, before, next, vendor.name);
+    const stillVisible = filtered().some((row) => row.code === vendor.code);
+    if (!stillVisible) {
+      state.selectedId = firstId(filtered());
+      paintList();
+      paintDetail();
+    } else {
+      syncListRow(vendor);
+      paintDetail();
+    }
+    toast(next === "중지" ? "사용 중지로 바꿨습니다. 기존 발주와 단가는 유지됩니다." : "사용으로 바꿨습니다.");
+  }
+
+  function normalizeBizNo(value) {
+    const digits = String(value || "").replace(/\D/g, "");
+    if (!digits) return "";
+    if (digits.length !== 10) return null;
+    return digits.slice(0, 3) + "-" + digits.slice(3, 5) + "-" + digits.slice(5);
+  }
+
+  function vendorNames(current) {
+    const names = data.vendors
+      .filter((vendor) => vendor.use === "사용" && vendor.name && !vendor.draft)
+      .map((vendor) => vendor.name)
+      .sort();
+    if (current && !names.includes(current)) names.unshift(current);
+    return names;
   }
 
   function newItem() {
@@ -830,6 +1016,13 @@
         return true;
       });
     }
+    if (state.module === "vendors") {
+      return data.vendors.filter((vendor) => {
+        if (filters.use && filters.use !== "전체" && vendor.use !== filters.use) return false;
+        if (filters.q && !(vendor.code + vendor.name + vendor.contact).toLowerCase().includes(filters.q.toLowerCase())) return false;
+        return true;
+      });
+    }
     return data.audit.filter((row) => {
       if (filters.action && filters.action !== "전체" && row.action !== filters.action) return false;
       if (filters.q && !(row.user + row.target + row.note + row.action).toLowerCase().includes(filters.q.toLowerCase())) return false;
@@ -879,6 +1072,13 @@
       cells[3].textContent = record.unit;
       cells[4].textContent = record.group;
       cells[5].replaceChildren(stateNode(record.use));
+    } else if (state.module === "vendors") {
+      cells[0].textContent = record.code;
+      cells[1].textContent = record.name;
+      cells[2].textContent = record.bizNo;
+      cells[3].textContent = record.contact;
+      cells[4].textContent = record.phone;
+      cells[5].replaceChildren(stateNode(record.use));
     }
   }
 
@@ -896,6 +1096,7 @@
     if (record && state.module === "orders") text = record.id + " 발주";
     else if (record && state.module === "prices") text = record.code + " 단가";
     else if (record && state.module === "items") text = (record.code || "신규") + " 품목";
+    else if (record && state.module === "vendors") text = (record.code || "신규") + " 협력사";
     else if (state.module === "audit") text = "변경 이력";
     tab.replaceChildren(el("span", {}, text));
   }
@@ -907,6 +1108,7 @@
     if (record && state.module === "orders") left += "  ·  " + record.id + "  ·  공급가액 " + money(orderAmount(record));
     else if (record && state.module === "prices") left += "  ·  " + record.code + "  ·  " + money(record.price);
     else if (record && state.module === "items") left += "  ·  " + (record.code || "신규");
+    else if (record && state.module === "vendors") left += "  ·  " + (record.code || "신규") + "  ·  " + (record.name || "");
     $("statusbar").replaceChildren(
       el("span", {}, left),
       el("span", { class: "msg" }, state.message),
@@ -1051,13 +1253,18 @@
     if (state.module === "orders") return record.status === "작성";
     if (state.module === "prices") return !!record.draft || record.status === "적용중";
     if (state.module === "items") return true;
+    if (state.module === "vendors") return true;
     return false;
   }
   function selectedRecord() {
     if (state.module === "orders") return selectedOrder();
     if (state.module === "prices") return selectedPrice();
     if (state.module === "items") return selectedItem();
+    if (state.module === "vendors") return selectedVendor();
     return null;
+  }
+  function selectedVendor() {
+    return data.vendors.find((vendor) => (vendor.draft ? vendor.tempId : vendor.code) === state.selectedId) || null;
   }
   function selectedItem() {
     return data.items.find((item) => (item.draft ? item.tempId : item.code) === state.selectedId) || null;
@@ -1095,6 +1302,7 @@
   function lineRecords(record) {
     if (state.module === "orders") return record.lines;
     if (state.module === "prices") return record.history;
+    if (state.module === "vendors") return data.prices.filter((price) => price.vendor === record.name && !price.draft);
     return contractsFor(record.code);
   }
   function contractsFor(code) { return data.prices.filter((price) => price.code === code); }
@@ -1102,6 +1310,7 @@
     if (state.module === "orders") return row.id;
     if (state.module === "prices") return row.id;
     if (state.module === "items") return row.draft ? row.tempId : row.code;
+    if (state.module === "vendors") return row.draft ? row.tempId : row.code;
     return row.at + row.target;
   }
   function firstId(rows) { return rows.length ? rowId(rows[0]) : ""; }
@@ -1115,13 +1324,13 @@
     return "PO-202611-" + String(Math.max(0, ...nums) + 1).padStart(4, "0");
   }
   function listCaption() {
-    return { orders: "발주 목록", prices: "계약 단가", items: "품목" }[state.module];
+    return { orders: "발주 목록", prices: "계약 단가", items: "품목", vendors: "협력사" }[state.module];
   }
   function detailCaption() {
-    return { orders: "발주 정보", prices: "단가 정보", items: "품목 정보" }[state.module];
+    return { orders: "발주 정보", prices: "단가 정보", items: "품목 정보", vendors: "협력사 정보" }[state.module];
   }
   function lineCaption() {
-    return { orders: "품목", prices: "단가 이력", items: "계약 단가" }[state.module];
+    return { orders: "품목", prices: "단가 이력", items: "계약 단가", vendors: "계약 단가" }[state.module];
   }
   function apiBase() {
     const configured = window.SCM_CONFIG && window.SCM_CONFIG.apiBase;
