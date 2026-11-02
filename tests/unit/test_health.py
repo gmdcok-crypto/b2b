@@ -21,6 +21,12 @@ def test_cors_allows_netlify(client) -> None:
     assert response.headers["access-control-allow-origin"] == origin
 
 
+def test_cors_allows_supplier_netlify(client) -> None:
+    origin = "https://b2bpart.netlify.app"
+    response = client.get("/health", headers={"Origin": origin})
+    assert response.headers["access-control-allow-origin"] == origin
+
+
 def test_cors_allows_local_frontend(client) -> None:
     origin = "http://127.0.0.1:8888"
     response = client.get("/health", headers={"Origin": origin})

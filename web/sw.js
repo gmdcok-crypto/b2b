@@ -1,5 +1,5 @@
-const CACHE = "scm-shell-v1";
-const SHELL = ["/", "/css/app.css", "/js/app.js", "/js/sample.js", "/config.js", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const CACHE = "scm-shell-v2";
+const SHELL = ["/", "/css/app.css", "/js/app.js", "/js/sample.js", "/config.js", "/manifest.webmanifest", "/manifest-supplier.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));

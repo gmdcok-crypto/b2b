@@ -1,6 +1,7 @@
 (function () {
   const data = window.SAMPLE;
   const TITLES = { orders: "발주", prices: "단가", items: "품목", vendors: "협력사", audit: "이력" };
+  const supplier = isSupplierPortal();
   const ITEM_GROUPS = ["원자재", "기자재", "가공품", "포장", "보전", "사출", "소모품"];
   const ITEM_UNITS = ["EA", "M", "KG", "BOX"];
   let itemSeq = 1;
@@ -26,6 +27,7 @@
     button.addEventListener("click", () => openModule(button.dataset.module));
   });
 
+  if (supplier) applySupplierShell();
   openModule("orders");
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
   checkApi();
@@ -76,6 +78,7 @@
   }
 
   function commands() {
+    if (supplier) return supplierCommands();
     if (state.module === "orders") {
       const order = selectedOrder();
       return [
@@ -150,22 +153,74 @@
     ];
   }
 
+  function supplierCommands() {
+    const record = selectedRecord();
+    if (state.module === "prices") {
+      const price = selectedPrice();
+      return [
+        { label: "조회", kind: "primary", run: () => toast(countText(filtered().length)) },
+        "|",
+        { label: "변경요청", enable: () => price && price.status === "적용중", run: requestPrice },
+        "|",
+        { label: "인쇄", enable: () => !!price, run: printCurrent }
+      ];
+    }
+    return [
+      { label: "조회", kind: "primary", run: () => toast(countText(filtered().length)) },
+      "|",
+      { label: "인쇄", enable: () => state.module === "audit" || !!record, run: printCurrent }
+    ];
+  }
+
+  function isSupplierPortal() {
+    const configured = window.SCM_CONFIG && window.SCM_CONFIG.portal;
+    if (configured === "supplier") return true;
+    if (location.hostname === "b2bpart.netlify.app") return true;
+    return new URLSearchParams(location.search).get("portal") === "supplier";
+  }
+
+  function supplierCompany() {
+    return data.vendors.find((vendor) => vendor.code === "V-HB") || data.vendors[0];
+  }
+
+  function applySupplierShell() {
+    TITLES.vendors = "회사정보";
+    document.title = "협력사 포털";
+    document.documentElement.dataset.portal = "supplier";
+    const brand = document.querySelector(".brand-text strong");
+    if (brand) brand.textContent = "협력사 포털";
+    const role = document.querySelector(".session-key");
+    if (role) role.textContent = "협력사";
+    const company = document.querySelector(".session strong");
+    if (company) company.textContent = supplierCompany().name;
+    const name = $("session-name");
+    if (name) name.textContent = supplierCompany().contact;
+    const foot = document.querySelector(".nav-foot");
+    if (foot) foot.textContent = "협력사";
+    const vendorNav = document.querySelector('[data-module="vendors"] span');
+    if (vendorNav) vendorNav.textContent = "회사정보";
+    const loginTitle = document.querySelector("#login h1");
+    if (loginTitle) loginTitle.textContent = "협력사 포털";
+  }
+
   function renderCriteria() {
     const box = $("criteria");
     box.replaceChildren();
     if (state.module === "orders") {
-      box.append(
+      const fields = [
         field("발주일", dateInput("from", "2026-01-01"), el("span", { class: "tilde" }, "~"), dateInput("to", "2026-12-31")),
-        field("상태", select("status", ["전체", "작성", "확정", "취소"], "전체")),
-        field("협력사", textInput("vendor", "vendor", "")),
-        field("검색", searchInput("q", "문서번호, 품목"))
-      );
+        field("상태", select("status", supplier ? ["전체", "확정", "취소"] : ["전체", "작성", "확정", "취소"], "전체"))
+      ];
+      if (!supplier) fields.push(field("협력사", textInput("vendor", "vendor", "")));
+      fields.push(field("검색", searchInput("q", "문서번호, 품목")));
+      box.append.apply(box, fields);
     } else if (state.module === "prices") {
-      box.append(
-        field("상태", select("status", ["전체", "작성", "적용중", "승인대기", "종료"], "전체")),
-        field("협력사", textInput("vendor", "vendor", "")),
-        field("검색", searchInput("q", "품목코드, 품목명"))
-      );
+      const fields = [
+        field("상태", select("status", supplier ? ["전체", "적용중", "승인대기", "종료"] : ["전체", "작성", "적용중", "승인대기", "종료"], "전체"))
+      ];
+      if (!supplier) fields.push(field("협력사", textInput("vendor", "vendor", "")));
+      fields.push(field("검색", searchInput("q", "품목코드, 품목명")));
+      box.append.apply(box, fields);
     } else if (state.module === "items") {
       box.append(
         field("사용", select("use", ["전체", "사용", "중지"], "전체")),
@@ -396,23 +451,29 @@
 
   function listColumns() {
     if (state.module === "orders") {
-      return [
+      const columns = [
         { key: "id", label: "문서번호", width: "118px" },
-        { key: "date", label: "발주일", width: "92px" },
-        { key: "vendor", label: "협력사" },
+        { key: "date", label: "발주일", width: "92px" }
+      ];
+      if (!supplier) columns.push({ key: "vendor", label: "협력사" });
+      columns.push(
         { key: "status", label: "상태", width: "68px", render: (row) => stateNode(row.status) },
         { key: "amount", label: "공급가액", width: "108px", align: "num", sort: true, render: (row) => money(orderAmount(row)) }
-      ];
+      );
+      return columns;
     }
     if (state.module === "prices") {
-      return [
+      const columns = [
         { key: "code", label: "품목코드", width: "124px" },
-        { key: "name", label: "품목명" },
-        { key: "vendor", label: "협력사", width: "132px" },
+        { key: "name", label: "품목명" }
+      ];
+      if (!supplier) columns.push({ key: "vendor", label: "협력사", width: "132px" });
+      columns.push(
         { key: "price", label: "현재단가", width: "96px", align: "num", render: (row) => money(row.price) },
         { key: "from", label: "적용시작", width: "96px" },
         { key: "status", label: "상태", width: "84px", render: (row) => stateNode(row.status) }
-      ];
+      );
+      return columns;
     }
     if (state.module === "items") {
       return [
@@ -952,7 +1013,7 @@
       type: "변경요청",
       before: price.price,
       after: next,
-      by: "김구매",
+      by: actor(),
       note: ""
     });
     pushAudit("변경요청", price.code, money(price.price), money(next), "");
@@ -984,7 +1045,7 @@
   function pushAudit(action, target, before, after, note) {
     data.audit.unshift({
       at: formatDate(new Date()) + " " + formatTime(new Date()),
-      user: "김구매",
+      user: actor(),
       action: action,
       target: target,
       before: before,
@@ -993,10 +1054,33 @@
     });
   }
 
+  function actor() {
+    return supplier ? supplierCompany().name : "김구매";
+  }
+
+  function supplierOwns(vendorName) {
+    return vendorName === supplierCompany().name;
+  }
+
+  function supplierItemCodes() {
+    const codes = new Set();
+    data.orders.forEach((order) => {
+      if (!supplierOwns(order.vendor) || order.status === "작성") return;
+      order.lines.forEach((line) => {
+        if (line.code) codes.add(line.code);
+      });
+    });
+    data.prices.forEach((price) => {
+      if (supplierOwns(price.vendor) && price.code && !price.draft) codes.add(price.code);
+    });
+    return codes;
+  }
+
   function filtered() {
     const filters = state.filters;
     if (state.module === "orders") {
       return data.orders.filter((order) => {
+        if (supplier && (!supplierOwns(order.vendor) || order.status === "작성")) return false;
         if (filters.from && order.date < filters.from) return false;
         if (filters.to && order.date > filters.to) return false;
         if (filters.status && filters.status !== "전체" && order.status !== filters.status) return false;
@@ -1007,6 +1091,7 @@
     }
     if (state.module === "prices") {
       return data.prices.filter((price) => {
+        if (supplier && (!supplierOwns(price.vendor) || price.draft)) return false;
         if (filters.status && filters.status !== "전체" && price.status !== filters.status) return false;
         if (filters.vendor && !price.vendor.includes(filters.vendor)) return false;
         if (filters.q && !(price.code + price.name + price.spec).toLowerCase().includes(filters.q.toLowerCase())) return false;
@@ -1014,7 +1099,9 @@
       });
     }
     if (state.module === "items") {
+      const traded = supplier ? supplierItemCodes() : null;
       return data.items.filter((item) => {
+        if (traded && !traded.has(item.code)) return false;
         if (filters.use && filters.use !== "전체" && item.use !== filters.use) return false;
         if (filters.group && filters.group !== "전체" && item.group !== filters.group) return false;
         if (filters.q && !(item.code + item.name + item.spec).toLowerCase().includes(filters.q.toLowerCase())) return false;
@@ -1023,12 +1110,18 @@
     }
     if (state.module === "vendors") {
       return data.vendors.filter((vendor) => {
+        if (supplier && vendor.code !== supplierCompany().code) return false;
         if (filters.use && filters.use !== "전체" && vendor.use !== filters.use) return false;
         if (filters.q && !(vendor.code + vendor.name + vendor.contact).toLowerCase().includes(filters.q.toLowerCase())) return false;
         return true;
       });
     }
+    const visibleOrders = supplier
+      ? data.orders.filter((order) => supplierOwns(order.vendor) && order.status !== "작성").map((order) => order.id)
+      : [];
+    const tradedCodes = supplier ? supplierItemCodes() : new Set();
     return data.audit.filter((row) => {
+      if (supplier && row.user !== supplierCompany().name && !visibleOrders.includes(row.target) && !tradedCodes.has(row.target)) return false;
       if (filters.action && filters.action !== "전체" && row.action !== filters.action) return false;
       if (filters.q && !(row.user + row.target + row.note + row.action).toLowerCase().includes(filters.q.toLowerCase())) return false;
       return true;
@@ -1060,16 +1153,27 @@
     const cells = tr.children;
     if (state.module === "orders") {
       cells[1].textContent = record.date;
-      cells[2].textContent = record.vendor;
-      cells[3].replaceChildren(stateNode(record.status));
-      cells[4].textContent = money(orderAmount(record));
+      if (supplier) {
+        cells[2].replaceChildren(stateNode(record.status));
+        cells[3].textContent = money(orderAmount(record));
+      } else {
+        cells[2].textContent = record.vendor;
+        cells[3].replaceChildren(stateNode(record.status));
+        cells[4].textContent = money(orderAmount(record));
+      }
     } else if (state.module === "prices") {
       cells[0].textContent = record.code;
       cells[1].textContent = record.name;
-      cells[2].textContent = record.vendor;
-      cells[3].textContent = money(record.price);
-      cells[4].textContent = record.from;
-      cells[5].replaceChildren(stateNode(record.status));
+      if (supplier) {
+        cells[2].textContent = money(record.price);
+        cells[3].textContent = record.from;
+        cells[4].replaceChildren(stateNode(record.status));
+      } else {
+        cells[2].textContent = record.vendor;
+        cells[3].textContent = money(record.price);
+        cells[4].textContent = record.from;
+        cells[5].replaceChildren(stateNode(record.status));
+      }
     } else if (state.module === "items") {
       cells[0].textContent = record.code;
       cells[1].textContent = record.name;
@@ -1166,7 +1270,7 @@
 
   function printTable(root, title, columns, rows) {
     root.append(el("h1", {}, title));
-    root.append(el("div", { class: "print-meta" }, el("span", {}, "구매사 (주)한성산업"), el("span", {}, rows.length + "건")));
+    root.append(el("div", { class: "print-meta" }, el("span", {}, supplier ? "협력사 " + supplierCompany().name : "구매사 (주)한성산업"), el("span", {}, rows.length + "건")));
     const table = el("table");
     table.append(el("tr", {}, columns.map((column) => el("th", { class: column.align === "num" ? "num" : "" }, column.label))));
     rows.forEach((row, index) => {
@@ -1255,6 +1359,7 @@
     return "";
   }
   function canEdit(record) {
+    if (supplier) return state.module === "prices" && record.status === "적용중";
     if (state.module === "orders") return record.status === "작성";
     if (state.module === "prices") return !!record.draft || record.status === "적용중";
     if (state.module === "items") return true;
@@ -1310,7 +1415,9 @@
     if (state.module === "vendors") return data.prices.filter((price) => price.vendor === record.name && !price.draft);
     return contractsFor(record.code);
   }
-  function contractsFor(code) { return data.prices.filter((price) => price.code === code); }
+  function contractsFor(code) {
+    return data.prices.filter((price) => price.code === code && !price.draft && (!supplier || supplierOwns(price.vendor)));
+  }
   function rowId(row) {
     if (state.module === "orders") return row.id;
     if (state.module === "prices") return row.id;
@@ -1329,10 +1436,10 @@
     return "PO-202611-" + String(Math.max(0, ...nums) + 1).padStart(4, "0");
   }
   function listCaption() {
-    return { orders: "발주 목록", prices: "계약 단가", items: "품목", vendors: "협력사" }[state.module];
+    return { orders: "발주 목록", prices: "계약 단가", items: "품목", vendors: supplier ? "회사 정보" : "협력사" }[state.module];
   }
   function detailCaption() {
-    return { orders: "발주 정보", prices: "단가 정보", items: "품목 정보", vendors: "협력사 정보" }[state.module];
+    return { orders: "발주 정보", prices: "단가 정보", items: "품목 정보", vendors: supplier ? "회사 정보" : "협력사 정보" }[state.module];
   }
   function lineCaption() {
     return { orders: "품목", prices: "단가 이력", items: "계약 단가", vendors: "계약 단가" }[state.module];
@@ -1413,7 +1520,7 @@
   function logoutSession() {
     sessionStorage.removeItem("scm.accessToken");
     const name = $("session-name");
-    if (name) name.textContent = "김구매";
+    if (name) name.textContent = supplier ? supplierCompany().contact : "김구매";
     const button = $("logout");
     if (button) button.hidden = true;
     showLogin();

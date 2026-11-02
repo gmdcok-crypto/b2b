@@ -6,8 +6,16 @@
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#12324d">
   <title>SCM B2B Portal</title>
-  <link rel="manifest" href="manifest.webmanifest">
+  <link id="manifest" rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
+  <script>
+    (function () {
+      var supplier = location.hostname === "b2bpart.netlify.app" || new URLSearchParams(location.search).get("portal") === "supplier";
+      if (!supplier) return;
+      document.title = "협력사 포털";
+      document.getElementById("manifest").href = "manifest-supplier.webmanifest";
+    })();
+  </script>
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>구매·협력사 포털 제안 시안</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #e7edf2;
+    color: #1c2833;
+    font: 15px/1.55 "Malgun Gothic", "Segoe UI", sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 28px 20px 64px; }
+  h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: -0.03em; }
+  h2 { margin: 28px 0 10px; font-size: 20px; }
+  h3 { margin: 0; font-size: 17px; }
+  p { margin: 0 0 8px; }
+  .lead { color: #4d5d6c; }
+  .bar {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; gap: 8px; align-items: center;
+    padding: 12px 0; background: #e7edf2;
+  }
+  button {
+    border: 1px solid #8aa0b3; background: #fff; color: #12324d;
+    border-radius: 4px; padding: 6px 14px; font: inherit; cursor: pointer;
+  }
+  button[aria-pressed="true"] { background: #12324d; color: #fff; border-color: #12324d; }
+  .note, .stats, .card, table { background: #fff; }
+  .note { border-left: 4px solid #b7791f; padding: 12px 14px; margin: 12px 0; }
+  .note strong { display: block; margin-bottom: 4px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: #d5dee6; margin: 14px 0; }
+  .stats div { background: #fff; padding: 14px 16px; }
+  .stats b { display: block; font-size: 26px; color: #12324d; }
+  .stats span { color: #4d5d6c; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e1e8ee; vertical-align: top; }
+  th { background: #f4f7f9; font-weight: 700; }
+  tr.warn td:last-child { color: #8a5a00; }
+  .process { margin: 18px 0 8px; }
+  .head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .no {
+    background: #12324d; color: #fff; font-size: 12px; font-weight: 700;
+    padding: 2px 7px; border-radius: 3px;
+  }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0; }
+  body[data-party="buyer"] .cols,
+  body[data-party="supplier"] .cols { grid-template-columns: 1fr; }
+  .card { border: 1px solid #d5dee6; padding: 12px 14px; }
+  .card h4 { margin: 0 0 8px; font-size: 14px; color: #12324d; }
+  ul { margin: 0; padding-left: 18px; }
+  li { margin: 0 0 6px; }
+  .label { margin: 8px 0 2px; font-size: 13px; font-weight: 700; }
+  .muted { color: #4d5d6c; }
+  .close { margin-top: 16px; background: #fff; border: 1px solid #d5dee6; padding: 14px 16px; }
+  body[data-party="buyer"] .supplier,
+  body[data-party="supplier"] .buyer { display: none; }
+  @media (max-width: 720px) {
+    .cols, .stats { grid-template-columns: 1fr; }
+  }
+  @media print {
+    .bar { display: none; }
+    body { background: #fff; }
+    main { max-width: none; }
+  }
+</style>
+</head>
+<body data-party="both">
+<main>
+  <h1>구매·협력사 포털 제안 시안</h1>
+  <p class="lead">2026-11-03 시안. 구매사 1곳과 그 협력사를 기준으로, 프로세스마다 누가 무엇을 하는지 적었다. 구매사와 협력사는 다른 도메인을 쓰고, API는 하나다. 확정된 요구와 아직 확인이 필요한 제안을 구분한다.</p>
+  <div class="bar">
+    <button type="button" data-party="both" aria-pressed="true">양쪽</button>
+    <button type="button" data-party="buyer" aria-pressed="false">구매사</button>
+    <button type="button" data-party="supplier" aria-pressed="false">협력업체</button>
+  </div>
+  <div class="note">
+    <strong>이 문서는 확인용 시안이다</strong>
+    역할 수, 단가를 가져오는 기준일, 기간이 겹치는 단가, 통화와 부가세, 엑셀 양식, 발주서 견본은 아직 고객 확인 전이다. 아래 확인 항목을 닫기 전에는 구현 요건으로 잠그지 않는다.
+  </div>
+  <div class="stats">
+    <div><b>10</b><span>확정된 요구</span></div>
+    <div><b>11</b><span>제안 프로세스</span></div>
+    <div><b>8</b><span>이번 범위에서 제외</span></div>
+  </div>
+
+  <h2>프로세스 지도</h2>
+  <p class="muted">구매사가 기준 자료를 만들고, 협력사는 확정된 자사 자료와 변경 요청만 다룬다.</p>
+  <table>
+    <thead><tr><th>프로세스</th><th>구매사</th><th>협력업체</th><th>이번 시안</th></tr></thead>
+    <tbody id="map"></tbody>
+  </table>
+
+  <h2>프로세스별 역할</h2>
+  <div id="list"></div>
+
+  <h2>이번 제안에서 빼는 프로세스</h2>
+  <p class="muted">아래는 별도 협의 전까지 화면, 상태, 권한에 넣지 않는다. 구매사와 협력업체 모두 해당한다.</p>
+  <table>
+    <thead><tr><th>제외</th><th>이번 시안의 처리</th></tr></thead>
+    <tbody>
+      <tr><td>확정 발주 변경 차수</td><td>확정본을 고치지 않고 취소 후 재발주한다.</td></tr>
+      <tr><td>수주 확인</td><td>협력사의 접수 버튼과 납기 회신은 두지 않는다.</td></tr>
+      <tr><td>납품·입고·검수</td><td>출고, 입고, 검사 성적서는 이번 범위 밖이다.</td></tr>
+      <tr><td>재고</td><td>창고와 재고 수불은 다루지 않는다.</td></tr>
+      <tr><td>정산</td><td>마감, 세금계산서, 지급 조건은 다루지 않는다.</td></tr>
+      <tr><td>ERP 연동</td><td>기간 시스템으로의 전송은 별도 협의다.</td></tr>
+      <tr><td>알림</td><td>메일, 문자, 푸시는 제외한다.</td></tr>
+      <tr><td>첨부파일</td><td>도면과 성적서 첨부는 제외한다.</td></tr>
+    </tbody>
+  </table>
+  <div class="close">
+    <strong>제안 한 줄</strong>
+    <p>구매사가 자기 주소에서 협력사, 품목, 계약단가, 발주를 만들고 확정한다. 협력사는 별도 주소에서 확정된 자사 발주와 자사 단가를 보고, 단가 변경만 요청한다. 확정 발주는 고치지 않고 취소 후 다시 낸다. 납품부터 정산, 알림, 첨부는 다음 합의로 남긴다.</p>
+  </div>
+</main>
+<script>
+const processes = [
+  { no:"01", title:"로그인과 화면 진입", buyerLine:"구매사 도메인", supplierLine:"협력사 도메인",
+    purpose:"구매사와 협력사는 서로 다른 주소로 들어온다. 협력사 주소에는 구매 메뉴가 없고, 보이는 자료는 회사 단위로 갈라진다.",
+    buyer:["구매사 주소에서 아이디와 비밀번호로 로그인한다. 서버는 JWT 액세스 토큰을 주고, 이후 요청은 Authorization Bearer로 보낸다.","토큰 기본 수명은 12시간이다. 브라우저 창을 닫으면 다시 로그인한다. 리프레시 토큰은 이번 범위에 없다.","로그인 후 발주, 단가, 품목, 협력사, 이력을 모두 연다. 이 메뉴는 구매사 주소에만 있다.","구매사 관리자가 계정을 만든다. 가입 신청 화면은 아직 열지 않는다."],
+    supplier:["협력사 전용 주소에서 로그인한다. 구매사 주소의 화면은 열리지 않는다.","로그인 후 자사 발주, 계약단가, 거래 품목, 자사 정보만 본다.","발주 작성, 품목 등록, 협력사 등록, 엑셀, 단가 승인 메뉴는 협력사 주소에 없다.","다른 협력사의 자료는 화면에서 숨기고 서버에서도 거절한다. 계정 발급은 구매사가 한다."],
+    included:["구매사와 협력사는 다른 도메인을 쓴다. 화면 코드는 하나이고 API도 하나다. 들어온 주소에 따라 메뉴가 갈린다.","인증은 JWT다. 토큰은 주소마다 따로 보관되고, 자사 자료만 보게 하는 검사는 서버가 한다.","구매사 화면은 https://gstec.netlify.app 이고, 협력사 화면은 https://b2bpart.netlify.app 이다."],
+    confirm:["구매사 한 곳만 쓸지, 구매사가 여러 곳인지는 미정이다. 시안은 구매사 1곳과 그 협력사들을 기준으로 한다.","역할은 구매 관리자, 구매 담당, 협력사 사용자 셋을 제안한다. 담당과 승인을 한 계정으로 합칠지는 확인이 필요하다.","업체별 계정 수, 비밀번호 재발급, 계정 잠금은 아직 정해지지 않았다."] },
+  { no:"02", title:"협력사 등록과 사용중지", buyerLine:"등록·수정·중지", supplierLine:"자사 정보 조회",
+    purpose:"발주와 계약단가에 쓰기 전에, 거래할 협력사를 구매사가 먼저 등록한다.",
+    buyer:["협력사 화면에서 신규로 연다. 입력 칸은 협력사코드, 협력사명, 사업자번호, 담당자, 전화, 이메일이다.","코드와 협력사명은 필수다. 사업자번호는 비울 수 있고, 넣으면 10자리로 검사한다. 같은 코드, 같은 상호, 같은 사업자번호는 다시 등록하지 않는다.","저장 전에는 코드를 고칠 수 있다. 저장하면 코드는 잠긴다. 상호, 담당, 연락처는 이후에도 수정한다.","거래가 끝난 협력사는 삭제하지 않고 사용중지로 바꾼다. 사용중지 뒤에는 신규 단가와 작성 중 발주에서 선택할 수 없다. 이미 있는 발주와 단가는 그대로 둔다.","상호를 고치면 기존 발주와 단가에 적힌 협력사명도 함께 바꾼다. 코드가 기준이고, 이름만 표시가 바뀐다."],
+    supplier:["자기 회사의 등록 정보와 사용 여부를 조회한다.","코드, 상호, 사업자번호, 사용 여부는 협력사가 직접 고치지 못한다. 연락처 변경이 필요하면 구매사에 요청한다.","사용중지된 뒤에도 과거 발주와 단가 이력은 조회할 수 있다. 새 발주를 받거나 새 단가를 제안하는 화면은 열리지 않는다."],
+    included:["삭제 대신 사용중지를 쓴다. 코드 문자는 영문 대문자, 숫자, 하이픈, 20자 이내다.","화면의 등록과 수정은 아직 서버에 저장되지 않는다. 제안서의 저장은 이후 서버 저장을 전제로 한다."],
+    confirm:["협력사가 담당자·전화·이메일만 스스로 고칠 수 있게 열지는 확인이 필요하다. 시안은 구매사만 수정하는 쪽으로 둔다.","사업자번호를 필수로 할지는 미정이다. 지금은 넣었을 때만 형식을 검사한다."] },
+  { no:"03", title:"품목 등록과 사용중지", buyerLine:"품목 마스터 관리", supplierLine:"거래 품목 조회",
+    purpose:"품목은 구매사 기준으로 하나다. 협력사마다 품목 코드를 따로 만들지 않고, 계약단가에서 협력사를 가른다.",
+    buyer:["품목 화면에서 신규로 연다. 입력 칸은 품목코드, 품목명, 규격, 단위, 분류다.","코드, 품목명, 단위는 필수다. 분류는 원자재, 기자재, 가공품, 포장, 보전, 사출, 소모품 중에서 고른다.","저장 전까지만 코드를 고친다. 저장 뒤에는 단가나 발주에 쓰였는지와 관계없이 코드를 바꾸지 않는다.","품목명, 규격, 단위, 분류는 수정할 수 있다. 더 이상 사지 않는 품목은 사용중지로 둔다.","사용중지 품목은 새 계약단가에 넣을 수 없다. 과거 발주와 기존 단가는 유지한다."],
+    supplier:["자사와 계약단가가 있거나 자사 발주에 들어간 품목만 본다.","품목 코드를 만들거나 규격을 고치는 권한은 없다.","사용중지 품목도, 과거에 거래했다면 조회는 된다. 새 단가 제안의 대상에서는 빠진다."],
+    included:["품목 마스터와 협력사별 계약단가는 분리한다.","코드에 협력사, 가격, 날짜를 넣지 않는다."],
+    confirm:["코드 접두 규칙(예: RM-000123)은 아직 잠그지 않았다. 시안은 구매사가 코드를 부여하고, 문자 규칙만 지킨다.","구매사가 여러 곳이면 품목 마스터를 구매사별로 격리한다. 구매사 수가 확정되기 전에는 1곳 기준으로 제안한다."] },
+  { no:"04", title:"계약단가 등록", buyerLine:"신규 단가 등록", supplierLine:"자사 단가 조회",
+    purpose:"같은 품목이라도 협력사마다 단가와 적용 기간이 다르다. 최초 등록은 구매사가 한다.",
+    buyer:["단가 화면의 신규에서 등록한다. 입력은 품목코드, 협력사, 계약단가, 적용시작, 적용종료, 비고다.","품목은 사용 중인 품목만, 협력사는 사용 중인 협력사만 고른다. 품목명, 규격, 단위는 품목 마스터에서 따라온다.","계약단가는 1원 이상의 정수다. 적용종료를 비우면 종료일이 없는 계약이다. 종료일은 시작일보다 앞설 수 없다.","저장하면 상태가 적용중이 되고, 단가번호와 등록 이력이 생긴다. 저장 뒤에는 품목, 협력사, 단가, 기간을 그 자리에서 고치지 않는다.","품목 화면 아래의 계약단가 표와 협력사 화면 아래의 계약단가 표는 조회만 한다."],
+    supplier:["자사 계약단가, 적용 기간, 상태를 조회한다.","최초 단가를 직접 등록하지 않는다. 가격을 바꾸고 싶으면 단가 변경 요청으로 간다.","종료되었거나 사용중지된 품목의 과거 단가도 이력으로 볼 수 있다."],
+    included:["단가 이력은 지우지 않는다.","통화와 부가세 포함 여부는 입력 칸에 넣지 않는다. 발주 화면의 현재 표시는 원화, 부가세 별도다."],
+    confirm:["같은 품목·같은 협력사에 기간이 겹치는 단가를 허용할지는 미정이다. 시안은 일단 막지 않고, 확인 후 막거나 이전 단가를 종료하는 규칙으로 닫는다.","과거 날짜로 소급 등록할지는 미정이다. 시안은 날짜 자체를 막지 않는다.","최소발주량, 납기, 결제조건은 계약단가 입력에 넣지 않는다."] },
+  { no:"05", title:"단가 변경 요청과 승인", buyerLine:"승인 또는 반려", supplierLine:"변경 요청",
+    purpose:"적용 중인 단가는 그 자리에서 덮어쓰지 않는다. 요청과 승인, 반려가 이력으로 남는다.",
+    buyer:["적용중 단가에서 요청단가를 검토한다. 협력사가 넣은 요청을 승인하거나 반려한다.","승인하면 현재단가가 요청단가로 바뀌고 상태는 적용중으로 돌아온다. 이전 금액은 이력에 남는다.","반려하면 현재단가는 유지되고 요청만 닫힌다.","구매사가 먼저 단가를 고쳐야 할 때도 같은 요청·승인 경로를 쓴다. 적용중 단가 칸을 바로 저장하지 않는다."],
+    supplier:["자사 적용중 단가에 요청단가를 입력하고 변경요청을 보낸다. 현재단가와 같은 금액은 요청할 수 없다.","요청 뒤에는 상태가 승인대기가 되고, 승인 또는 반려 전에는 요청을 다른 금액으로 덮어쓰지 않는다.","승인·반려 버튼은 협력사에게 열리지 않는다."],
+    included:["단가 변경의 승인·반려와 이력 보존은 확정된 요구다."],
+    confirm:["요청 주체를 협력사로 두는 것은 제안이다. 구매사만 요청하게 할 수도 있다.","승인 권한을 구매 담당과 관리자로 나눌지는 역할 확정 후에 닫는다.","미래 일자에 예약 적용할지는 미정이다. 시안은 승인 즉시 현재단가를 바꾼다."] },
+  { no:"06", title:"발주 작성", buyerLine:"작성·저장", supplierLine:"작성 중에는 비공개",
+    purpose:"발주서는 구매사가 만든다. 협력사는 확정되기 전의 작성 문서를 보지 않는다.",
+    buyer:["발주 화면에서 신규 문서를 연다. 헤더는 문서번호, 발주일, 납기일, 협력사, 담당, 통화, 부가세, 비고다.","협력사는 사용 중인 협력사만 고른다. 줄에는 품목코드, 품목명, 규격, 단위, 수량, 단가, 납기를 넣는다.","상태가 작성인 동안 헤더와 줄을 고치고 저장한다. 문서번호는 시스템이 매긴다.","줄 단가의 기본값은 그 협력사·품목의 적용중 계약단가로 채우는 것을 제안한다. 그 발주서 안에서만 단가를 고칠 수 있고, 계약단가 원장은 바뀌지 않는다.","계약단가가 없는 품목 줄은 단가를 비워 두고 저장을 막는다. 구매사가 발주서에 임의 단가를 남기려면 확인이 필요하다."],
+    supplier:["작성 상태의 발주는 목록에 나오지 않는다.","발주를 대신 작성하거나 줄을 추가하지 않는다.","확정 이후에 자사 발주의 품목, 수량, 단가, 납기를 조회한다."],
+    included:["발주의 생성과 작성 중 수정은 이 시스템의 범위다."],
+    confirm:["단가를 가져오는 기준일이 발주일인지 납기일인지는 미정이다. 시안은 발주일을 기준일로 제안한다.","통화, 부가세, 소수 수량, 반올림은 미정이다. 시안은 원화, 부가세 별도, 수량 소수 2자리, 금액은 원 단위 반올림으로 둔다.","작성 문서를 협력사에게 미리 보일지는 미정이다. 시안은 확정 전 비공개다."] },
+  { no:"07", title:"발주 확정과 취소", buyerLine:"확정·취소·재발주", supplierLine:"확정본 조회",
+    purpose:"확정은 협력사에게 발주를 넘기는 시점이다. 확정 후에는 그 문서를 고치지 않고, 취소한 뒤 새로 발주한다.",
+    buyer:["작성 문서를 확정한다. 확정되면 헤더와 줄이 잠긴다.","확정 문서를 거둘 때는 발주취소를 한다. 취소 사유는 이력에 남긴다.","수량이나 납기를 바꿔야 하면 취소 후 재발주한다. 같은 문서에 차수를 얹지 않는다.","재발주 문서는 새 문서번호를 받는다. 이전 문서번호는 이력으로 남는다."],
+    supplier:["확정된 자사 발주만 본다. 작성 중이거나 다른 협력사 발주는 보지 못한다.","확정본의 품목, 수량, 단가, 납기, 비고를 조회하고 인쇄한다.","취소된 발주도 자사 분이면 취소 상태로 조회된다. 협력사가 취소를 실행하지는 않는다.","수주 확인 버튼은 두지 않는다. 별도 협의 전까지 제외다."],
+    included:["확정과 취소는 이 시스템에서 처리한다."],
+    confirm:["확정 후 수정 금지와 취소 후 재발주는 제안이다. 아직 고객 확정이 아니다.","확정 권한과 취소 권한을 담당과 관리자로 나눌지는 미정이다.","부분 취소, 잔량 발주, 변경 차수는 이번 제안에서 뺀다."] },
+  { no:"08", title:"조회와 변경 이력", buyerLine:"전체 이력", supplierLine:"자사 이력",
+    purpose:"누가 언제 무엇을 바꿨는지 발주, 단가, 품목, 협력사에 공통으로 남긴다.",
+    buyer:["이력 화면에서 작업, 대상, 사용자, 이전 값, 이후 값, 내용을 본다.","작업은 작성, 확정, 취소, 등록, 수정, 사용중지, 사용재개, 변경요청, 승인, 반려, 종료를 포함한다.","목록은 발주일, 상태, 협력사, 품목으로 거르고, 열 제목으로 정렬한다."],
+    supplier:["자사 발주, 자사 단가, 자사 협력사 정보에 대한 이력만 본다.","구매사 내부 담당자 이름 공개 범위는 발주서에 적힌 담당까지로 제안한다. 다른 협력사 사용자 이름은 보이지 않는다."],
+    included:["단가 이력 보존은 확정된 요구다. 품목·협력사의 등록, 수정, 사용중지도 같은 이력에 남긴다."],
+    confirm:["이력 보관 기간과 삭제 가능 여부는 미정이다. 시안은 운영 데이터에서 이력을 삭제하지 않는다."] },
+  { no:"09", title:"엑셀 일괄 등록", buyerLine:"양식 업로드", supplierLine:"해당 없음",
+    purpose:"품목, 협력사, 계약단가를 한 건씩만 치면 초기 이관이 어렵다. 구매사용 엑셀 등록을 둔다.",
+    buyer:["품목, 협력사, 계약단가를 각각 정해진 열로 올린다. 화면의 필수 칸과 같은 검사를 한다.","코드가 이미 있으면 신규로 넣지 않고 오류 행으로 돌린다. 빈 행과 형식 오류도 행 번호와 함께 보여 준다.","오류가 없는 행만 반영하는 방식을 제안한다. 파일 전체를 롤백할지는 확인 항목이다.","사용중지와 단가 승인, 발주 확정은 엑셀로 하지 않는다."],
+    supplier:["엑셀 업로드 메뉴는 열리지 않는다.","구매사가 올린 결과 중 자사 단가와 자사 정보만 조회한다."],
+    included:["엑셀 등록은 확정된 요구다. 화면과 양식 파일은 아직 없다."],
+    confirm:["양식 열 이름, 샘플 파일, 기존 자료 건수는 고객 자료가 필요하다.","한 파일에 오류가 하나라도 있으면 전체를 거절할지는 미정이다."] },
+  { no:"10", title:"A4 출력", buyerLine:"발주서·단가 인쇄", supplierLine:"받은 발주서 인쇄",
+    purpose:"확정 발주를 종이 발주서로 넘길 수 있어야 한다. 직인과 로고는 견본이 오기 전에는 자리를 비워 둔다.",
+    buyer:["작성 또는 확정 발주를 A4로 인쇄한다. 머리에는 구매사명, 문서번호, 발주일, 납기, 협력사, 담당, 통화, 부가세, 비고가 들어간다.","줄에는 품목, 수량, 단가, 공급가액, 납기와 합계가 들어간다. 합계는 부가세 별도다.","단가 목록과 품목, 협력사 목록도 표로 인쇄할 수 있다.","담당, 승인 칸은 두되 직인 이미지는 넣지 않는다."],
+    supplier:["확정된 자사 발주서를 같은 양식으로 인쇄한다.","작성 중 문서와 다른 협력사 문서는 인쇄할 수 없다.","단가 확정서 양식은 견본이 없어 이번 시안의 인쇄 범위에서 뺀다. 단가 목록 인쇄만 둔다."],
+    included:["A4 출력은 확정된 요구다."],
+    confirm:["발주서 견본, 로고, 직인, 공급가액 표기 자릿수는 미확정이다.","단가확정서를 별도 양식으로 만들지는 견본 확인 후 결정한다."] },
+  { no:"11", title:"설치형 화면", buyerLine:"구매사 주소에 설치", supplierLine:"협력사 주소에 설치",
+    purpose:"앱스토어 앱을 따로 만들지 않는다. 구매사 주소와 협력사 주소를 각각 설치하고, 구매 업무는 넓은 그리드로 유지한다.",
+    buyer:["구매사 주소에서 구매 포털을 설치할 수 있다. 발주, 단가, 품목, 협력사는 전체 화면 그리드다.","설치해도 휴대폰에서 그 그리드를 억지로 줄이지 않는다. 구매 업무는 데스크톱을 기준으로 한다.","서비스 워커는 그 주소의 화면 껍데기만 보관한다. 발주와 단가를 오프라인에서 고치지 않는다.","푸시 알림은 이번 제안에 넣지 않는다."],
+    supplier:["협력사 주소에서 협력사 포털을 설치할 수 있다. 설치 화면에도 구매 메뉴는 없다.","휴대폰에서 우선 볼 화면은 확정된 자사 발주 목록과 발주 상세로 제안한다. 그 화면은 이번 시안의 다음 구현 단계다.","오프라인에서 발주를 조회하거나 단가를 요청하지 않는다. 연결이 있을 때만 처리한다."],
+    included:["설치는 주소마다 한다. 껍데기만 캐시하고, 업무 데이터의 오프라인 편집과 푸시는 제외한다.","두 주소 모두 같은 API를 호출한다. 협력사 주소는 호스트명이 정해지면 API의 허용 출처에 넣는다.","구매 화면 스타일은 바닐라 CSS의 ERP 컴포지트 그리드다."],
+    confirm:["협력사용 휴대폰 화면을 1차에 넣을지 2차로 미룰지는 일정 확인이 필요하다. 시안은 데스크톱 업무를 먼저 서버에 저장하고, 휴대폰 조회를 뒤 단계로 둔다."] }
+];
+
+function items(lines) {
+  return "<ul>" + lines.map((line) => "<li>" + line + "</li>").join("") + "</ul>";
+}
+
+document.getElementById("map").innerHTML = processes.map((item) => {
+  const state = item.confirm.length ? "확인 필요" : "확정 범위";
+  const klass = item.confirm.length ? "warn" : "";
+  return "<tr class=\"" + klass + "\"><td>" + item.no + " " + item.title + "</td><td>" + item.buyerLine + "</td><td>" + item.supplierLine + "</td><td>" + state + "</td></tr>";
+}).join("");
+
+document.getElementById("list").innerHTML = processes.map((item) => {
+  const confirm = item.confirm.length
+    ? "<p class=\"label\">확인이 필요한 점</p>" + items(item.confirm)
+    : "";
+  return "<section class=\"process\">" +
+    "<div class=\"head\"><span class=\"no\">" + item.no + "</span><h3>" + item.title + "</h3></div>" +
+    "<p>" + item.purpose + "</p>" +
+    "<div class=\"cols\">" +
+      "<article class=\"card buyer\"><h4>구매사</h4>" + items(item.buyer) + "</article>" +
+      "<article class=\"card supplier\"><h4>협력업체</h4>" + items(item.supplier) + "</article>" +
+    "</div>" +
+    "<p class=\"label\">이번 제안에 포함하는 것</p><div class=\"muted\">" + items(item.included) + "</div>" +
+    "<div class=\"muted\">" + confirm + "</div>" +
+  "</section>";
+}).join("");
+
+document.querySelectorAll(".bar button").forEach((button) => {
+  button.addEventListener("click", () => {
+    document.body.dataset.party = button.dataset.party;
+    document.querySelectorAll(".bar button").forEach((other) => {
+      other.setAttribute("aria-pressed", other === button ? "true" : "false");
+    });
+  });
+});
+</script>
+</body>
+</html>

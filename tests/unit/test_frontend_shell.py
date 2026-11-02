@@ -12,6 +12,8 @@ def test_netlify_shell_uses_relative_assets() -> None:
     assert 'rel="manifest"' in html
     assert (ROOT / "web" / "sw.js").is_file()
     assert (ROOT / "web" / "manifest.webmanifest").is_file()
+    assert (ROOT / "web" / "manifest-supplier.webmanifest").is_file()
+    assert "b2bpart.netlify.app" in (ROOT / "web" / "js" / "app.js").read_text(encoding="utf-8")
     assert "url_for" not in html
     assert (ROOT / "web" / "css" / "app.css").is_file()
     assert (ROOT / "web" / "js" / "app.js").is_file()
