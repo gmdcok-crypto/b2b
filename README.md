@@ -19,7 +19,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 화면은 설치형 PWA다. `manifest.webmanifest`와 `sw.js`가 화면 껍데기를 보관한다. 발주·단가 같은 업무 데이터는 오프라인에서 수정하지 않는다.
 
-인증은 JWT 액세스 토큰이다. `JWT_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD`가 모두 있으면 로그인을 요구하고, 토큰은 `Authorization: Bearer`로 보낸다. 하나라도 없으면 로그인 없이 샘플 화면을 연다. 계정 테이블과 리프레시 토큰은 아직 없다.
+인증은 JWT 액세스 토큰이다. 구매사는 `JWT_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD`가 모두 있을 때 환경 변수 계정으로 로그인한다. 협력사는 협력사코드와 비밀번호로 로그인한다. 비밀번호는 구매사가 보낸 1회 링크에서 처음 설정하고, 그 다음부터는 코드와 비밀번호만 쓴다. 리프레시 토큰은 없다.
 
 - `GET /health`는 데이터베이스를 조회하지 않는다.
 - `DATABASE_URL` 또는 `MYSQL_URL`이 있을 때만 DB 세션을 만든다.
@@ -49,18 +49,22 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 `https://gstec.netlify.app`, `https://b2bpart.netlify.app`과 로컬 화면 주소 `http://127.0.0.1:8888`, `http://localhost:8888`은 기본으로 허용한다. 그 밖의 출처는 `CORS_ORIGINS`에 있을 때만 브라우저 요청이 통과한다.
 
-시작 명령은 다음이다.
+시작 명령은 다음이다. 데이터베이스 URL이 있으면 협력사 테이블 마이그레이션을 먼저 실행한다.
 
 ```text
-uvicorn app.main:app --host 0.0.0.0 --port $PORT
+python -m app.db.migrate && uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
 저장소 루트에 `package.json`을 두면 Railway가 Node 앱으로 볼 수 있으니 두지 않는다.
 
 ### 데이터베이스
 
-Railway의 기본 데이터베이스 도우미는 MySQL, PostgreSQL, Redis, MongoDB다. MariaDB는 그 목록에 없다. MariaDB 10.11을 쓰려면 같은 프로젝트에 MariaDB 서비스를 따로 두고, 데이터 디렉터리 `/var/lib/mysql`에 볼륨을 마운트한다. 이미지 태그는 `mariadb:10.11`을 기준으로 한다.
+데이터베이스는 Railway MySQL이다. API 서비스에는 그 데이터베이스의 **비공개** 접속 URL을 `DATABASE_URL` 또는 `MYSQL_URL`로 넣는다. `mysql://`는 애플리케이션이 `mysql+pymysql://`로 바꿔 SQLAlchemy에 전달한다. URL이 있으면 컨테이너가 뜰 때 `alembic`으로 협력사 테이블을 만든다.
 
-API 서비스에는 그 데이터베이스의 **비공개** 접속 URL을 `DATABASE_URL` 또는 `MYSQL_URL`로 넣는다. `mysql://`, `mariadb://`는 애플리케이션이 `mysql+pymysql://`로 바꿔 SQLAlchemy에 전달한다.
+협력사 테이블은 세 개다.
+
+- `suppliers`: 협력사코드, 상호, 사업자번호, 담당자, 전화, 이메일, 사용 여부
+- `supplier_accounts`: 협력사당 비밀번호 해시 하나. 최초 설정 전에는 비어 있다
+- `supplier_invites`: 1회 링크의 토큰 해시, 만료 시각, 사용 시각. 비밀번호는 저장하지 않는다
 
 백업, 복구 목표, 호스팅 소유자는 아직 정해지지 않았다.
