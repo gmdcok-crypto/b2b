@@ -39,6 +39,16 @@
   if (logout) logout.addEventListener("click", logoutSession);
   const loginForm = $("login-form");
   if (loginForm) loginForm.addEventListener("submit", submitLogin);
+  const noticeOk = $("notice-ok");
+  if (noticeOk) noticeOk.addEventListener("click", closeNotice);
+  const notice = $("notice");
+  if (notice) {
+    notice.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" && event.key !== "Enter") return;
+      event.preventDefault();
+      closeNotice();
+    });
+  }
 
   function openModule(name) {
     state.module = name;
@@ -780,7 +790,7 @@
     }
     const vendor = {
       tempId: "VNEW-" + vendorSeq++,
-      code: "",
+      code: nextVendorCode(),
       name: "",
       bizNo: "",
       contact: "",
@@ -794,9 +804,23 @@
     renderCriteria();
     state.selectedId = vendor.tempId;
     renderWorkspace();
-    toast("협력사 등록을 열었습니다. 코드를 입력한 뒤 저장하세요.");
-    const input = $("composite").querySelector('[data-field="code"]');
+    toast("협력사 등록을 열었습니다. 협력사명을 입력한 뒤 저장하세요.");
+    const input = $("composite").querySelector('[data-field="name"]');
     if (input) input.focus();
+  }
+
+  function nextVendorCode() {
+    let max = 0;
+    data.vendors.forEach((vendor) => {
+      const match = String(vendor.code || "").toUpperCase().match(/^V-(\d+)$/);
+      if (match) max = Math.max(max, Number(match[1]));
+    });
+    return "V-" + String(max + 1).padStart(4, "0");
+  }
+
+  function closeNotice() {
+    const panel = $("notice");
+    if (panel) panel.hidden = true;
   }
 
   function saveVendor() {
@@ -1615,26 +1639,28 @@
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
-          if (error) error.textContent = payload.message || "로그인하지 못했습니다.";
+          if (error) error.textContent = "";
+          toast(payload.message || "로그인하지 못했습니다.");
           return;
         }
         sessionStorage.setItem("scm.accessToken", payload.access_token);
         enterSession(payload);
       })
       .catch(() => {
-        if (error) error.textContent = "인증 서버에 연결하지 못했습니다.";
+        if (error) error.textContent = "";
+        toast("인증 서버에 연결하지 못했습니다.");
       });
   }
 
   function countText(count) { return count + "건을 조회했습니다."; }
   function toast(message) {
-    state.message = message;
-    renderStatus();
-    clearTimeout(state.timer);
-    state.timer = setTimeout(() => {
-      state.message = "";
-      renderStatus();
-    }, 4000);
+    const panel = $("notice");
+    const text = $("notice-text");
+    const button = $("notice-ok");
+    if (!panel || !text) return;
+    text.textContent = message;
+    panel.hidden = false;
+    if (button) button.focus();
   }
   function money(value) {
     if (value === "" || value == null || Number.isNaN(Number(value))) return "";

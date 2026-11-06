@@ -130,6 +130,27 @@ html.boot .app { visibility: hidden; }
   padding: 0 8px;
   background: var(--edit);
 }
+.notice {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(18, 50, 77, 0.35);
+}
+.notice[hidden] { display: none; }
+.notice-card {
+  width: min(420px, calc(100% - 32px));
+  background: #fff;
+  border: 1px solid var(--line-strong);
+}
+.notice-card p {
+  margin: 0;
+  padding: 18px 16px 8px;
+  line-height: 1.5;
+}
+.notice-actions { display: flex; justify-content: flex-end; padding: 8px 14px 14px; }
 .login-error {
   min-height: 18px;
   margin: 8px 14px 0;
@@ -490,7 +511,7 @@ html.boot .app { visibility: hidden; }
 @media print {
   @page { size: A4; margin: 12mm; }
   body { background: #fff; }
-  .app, .login { display: none !important; }
+  .app, .login, .notice { display: none !important; }
   .print-root { display: block; color: #000; }
   .print-root h1 { margin: 0 0 4px; text-align: center; font-size: 22px; letter-spacing: 0.4em; font-weight: 700; }
   .print-meta { display: flex; justify-content: space-between; margin: 0 0 8px; font-size: 12px; }
