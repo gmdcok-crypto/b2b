@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.routers.auth import router as auth_router
 from app.routers.health import router as health_router
+from app.routers.suppliers import router as suppliers_router
 
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
@@ -24,6 +25,7 @@ app.add_middleware(
 )
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(suppliers_router)
 app.mount(
     "/",
     StaticFiles(directory=Path(__file__).resolve().parents[1] / "web", html=True),

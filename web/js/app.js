@@ -1,14 +1,17 @@
 (function () {
-  const data = window.SAMPLE;
-  const TITLES = { orders: "발주", prices: "단가", items: "품목", vendors: "협력사", audit: "이력" };
   const supplier = isSupplierPortal();
+  const data = supplier
+    ? { orders: [], prices: [], items: [], vendors: [], audit: [] }
+    : window.SAMPLE;
+  if (!supplier) data.vendors = [];
+  const TITLES = { orders: "발주", prices: "단가", items: "품목", vendors: "협력사", audit: "이력" };
   const ITEM_GROUPS = ["원자재", "기자재", "가공품", "포장", "보전", "사출", "소모품"];
   const ITEM_UNITS = ["EA", "M", "KG", "BOX"];
   let itemSeq = 1;
   let vendorSeq = 1;
   const state = {
     module: "orders",
-    selectedId: data.orders[0].id,
+    selectedId: data.orders.length ? data.orders[0].id : "",
     sortKey: "date",
     sortDir: "desc",
     split: 42,
@@ -28,6 +31,7 @@
   });
 
   if (supplier) applySupplierShell();
+  loadSuppliers();
   openModule("orders");
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
   checkApi();
@@ -180,7 +184,32 @@
   }
 
   function supplierCompany() {
-    return data.vendors.find((vendor) => vendor.code === "V-HB") || data.vendors[0];
+    const rows = data.vendors.filter((vendor) => vendor.code && !vendor.draft);
+    return rows.length === 1 ? rows[0] : { code: "", name: "", contact: "" };
+  }
+
+  function loadSuppliers() {
+    fetch(apiBase() + "/suppliers", { headers: { Accept: "application/json" } })
+      .then(async (response) => {
+        if (!response.ok) return [];
+        const body = await response.json().catch(() => []);
+        return Array.isArray(body) ? body : [];
+      })
+      .then((rows) => {
+        data.vendors = rows.map((row) => Object.assign({ savedName: row.name }, row));
+        if (supplier) {
+          const company = supplierCompany();
+          const companyNode = document.querySelector(".session strong");
+          if (companyNode) companyNode.textContent = company.name;
+          const person = $("session-name");
+          if (person) person.textContent = company.contact;
+        }
+        if (!filtered().some((row) => rowId(row) === state.selectedId)) state.selectedId = firstId(filtered());
+        renderWorkspace();
+        renderCommand();
+        renderStatus();
+      })
+      .catch(() => {});
   }
 
   function applySupplierShell() {
@@ -811,28 +840,49 @@
     }
     const creating = !!vendor.draft;
     const previous = vendor.savedName || "";
-    vendor.code = code;
-    vendor.name = name;
-    vendor.bizNo = bizNo;
     vendor.contact = String(vendor.contact || "").trim();
     vendor.phone = String(vendor.phone || "").trim();
     vendor.email = email;
-    if (!creating && previous && previous !== name) {
-      data.orders.forEach((order) => {
-        if (order.vendor === previous) order.vendor = name;
-      });
-      data.prices.forEach((price) => {
-        if (price.vendor === previous) price.vendor = name;
-      });
-    }
-    vendor.savedName = name;
-    vendor.draft = false;
-    delete vendor.tempId;
-    state.selectedId = vendor.code;
-    pushAudit(creating ? "등록" : "수정", vendor.code, previous, vendor.name, vendor.bizNo);
-    paintList();
-    paintDetail();
-    toast(creating ? "협력사를 등록했습니다. 서버 저장은 아직 연결되지 않았습니다." : "협력사를 수정했습니다. 서버 저장은 아직 연결되지 않았습니다.");
+    const payload = {
+      code: code,
+      name: name,
+      bizNo: bizNo,
+      contact: String(vendor.contact || "").trim(),
+      phone: String(vendor.phone || "").trim(),
+      email: email,
+      use: vendor.use || "사용"
+    };
+    const path = creating ? "/suppliers" : "/suppliers/" + encodeURIComponent(vendor.code);
+    fetch(apiBase() + path, {
+      method: creating ? "POST" : "PATCH",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || "협력사를 저장하지 못했습니다.");
+        return body;
+      })
+      .then((saved) => {
+        Object.assign(vendor, saved);
+        vendor.savedName = saved.name;
+        vendor.draft = false;
+        delete vendor.tempId;
+        state.selectedId = vendor.code;
+        if (!creating && previous && previous !== saved.name) {
+          data.orders.forEach((order) => {
+            if (order.vendor === previous) order.vendor = saved.name;
+          });
+          data.prices.forEach((price) => {
+            if (price.vendor === previous) price.vendor = saved.name;
+          });
+        }
+        pushAudit(creating ? "등록" : "수정", vendor.code, previous, vendor.name, vendor.bizNo);
+        paintList();
+        paintDetail();
+        toast(creating ? "협력사를 등록했습니다." : "협력사를 수정했습니다.");
+      })
+      .catch((error) => toast(error.message || "협력사를 저장하지 못했습니다."));
   }
 
   function setVendorUse(next) {
@@ -841,17 +891,42 @@
     if (vendor.use === next) return;
     const before = vendor.use;
     vendor.use = next;
-    pushAudit(next === "중지" ? "사용중지" : "사용재개", vendor.code, before, next, vendor.name);
-    const stillVisible = filtered().some((row) => row.code === vendor.code);
-    if (!stillVisible) {
-      state.selectedId = firstId(filtered());
-      paintList();
-      paintDetail();
-    } else {
-      syncListRow(vendor);
-      paintDetail();
-    }
-    toast(next === "중지" ? "사용 중지로 바꿨습니다. 기존 발주와 단가는 유지됩니다." : "사용으로 바꿨습니다.");
+    fetch(apiBase() + "/suppliers/" + encodeURIComponent(vendor.code), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        name: vendor.name,
+        bizNo: vendor.bizNo || "",
+        contact: vendor.contact || "",
+        phone: vendor.phone || "",
+        email: vendor.email || "",
+        use: next
+      })
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || "사용 여부를 바꾸지 못했습니다.");
+        return body;
+      })
+      .then((saved) => {
+        Object.assign(vendor, saved);
+        pushAudit(next === "중지" ? "사용중지" : "사용재개", vendor.code, before, next, vendor.name);
+        const stillVisible = filtered().some((row) => row.code === vendor.code);
+        if (!stillVisible) {
+          state.selectedId = firstId(filtered());
+          paintList();
+          paintDetail();
+        } else {
+          syncListRow(vendor);
+          paintDetail();
+        }
+        toast(next === "중지" ? "사용 중지로 바꿨습니다. 기존 발주와 단가는 유지됩니다." : "사용으로 바꿨습니다.");
+      })
+      .catch((error) => {
+        vendor.use = before;
+        paintDetail();
+        toast(error.message || "사용 여부를 바꾸지 못했습니다.");
+      });
   }
 
   function normalizeBizNo(value) {
