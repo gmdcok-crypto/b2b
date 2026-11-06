@@ -1,15 +1,16 @@
 from collections.abc import Generator
 import re
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
+from app.core.tokens import require_buyer
 from app.db.session import get_db
-from app.models.supplier import Supplier
+from app.models.supplier import Supplier, SupplierAccount
 
 router = APIRouter(tags=["suppliers"])
 CODE_PATTERN = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)*$")
@@ -123,6 +124,24 @@ def update_supplier(code: str, body: SupplierBody, db: Session = Depends(db_sess
         raise duplicate_error(exc) from exc
     db.refresh(row)
     return to_public(row)
+
+
+@router.post("/suppliers/{code}/password-reset")
+def reset_supplier_password(
+    code: str,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(db_session),
+) -> dict[str, str | bool]:
+    require_buyer(authorization)
+    supplier = find_supplier(db, code)
+    account = db.scalar(select(SupplierAccount).where(SupplierAccount.supplier_id == supplier.id))
+    if account is None:
+        account = SupplierAccount(supplier_id=supplier.id)
+        db.add(account)
+    account.password_hash = None
+    account.password_set_at = None
+    db.commit()
+    return {"code": supplier.code, "passwordSet": False}
 
 
 def find_supplier(db: Session, code: str) -> Supplier:

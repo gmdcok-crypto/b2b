@@ -9,6 +9,8 @@
   const ITEM_UNITS = ["EA", "M", "KG", "BOX"];
   let itemSeq = 1;
   let vendorSeq = 1;
+  let noticeAction = null;
+  let supplierSetup = false;
   const state = {
     module: "orders",
     selectedId: data.orders.length ? data.orders[0].id : "",
@@ -16,6 +18,7 @@
     sortDir: "desc",
     split: 42,
     message: "",
+    supplierCode: "",
     api: "API 확인 중",
     timer: 0,
     filters: {}
@@ -31,7 +34,7 @@
   });
 
   if (supplier) applySupplierShell();
-  loadSuppliers();
+  if (!supplier) loadSuppliers();
   openModule("orders");
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
   checkApi();
@@ -40,13 +43,27 @@
   const loginForm = $("login-form");
   if (loginForm) loginForm.addEventListener("submit", submitLogin);
   const noticeOk = $("notice-ok");
-  if (noticeOk) noticeOk.addEventListener("click", closeNotice);
+  if (noticeOk) {
+    noticeOk.addEventListener("click", () => {
+      const action = noticeAction;
+      closeNotice();
+      if (action) action();
+    });
+  }
+  const noticeCancel = $("notice-cancel");
+  if (noticeCancel) noticeCancel.addEventListener("click", closeNotice);
   const notice = $("notice");
   if (notice) {
     notice.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" && event.key !== "Enter") return;
       event.preventDefault();
+      if (event.key === "Escape") {
+        closeNotice();
+        return;
+      }
+      const action = noticeAction;
       closeNotice();
+      if (action) action();
     });
   }
 
@@ -156,6 +173,12 @@
           enable: () => vendor && !vendor.draft,
           run: () => setVendorUse(inUse ? "중지" : "사용")
         },
+        {
+          label: "비밀번호 초기화",
+          kind: "danger",
+          enable: () => vendor && !vendor.draft,
+          run: resetVendorPassword
+        },
         "|",
         { label: "인쇄", enable: () => !!vendor && !vendor.draft, run: printCurrent }
       ];
@@ -206,6 +229,10 @@
         return Array.isArray(body) ? body : [];
       })
       .then((rows) => {
+        if (supplier && state.supplierCode) {
+          const code = String(state.supplierCode).toUpperCase();
+          rows = rows.filter((row) => String(row.code || "").toUpperCase() === code);
+        }
         data.vendors = rows.map((row) => Object.assign({ savedName: row.name }, row));
         if (supplier) {
           const company = supplierCompany();
@@ -240,6 +267,8 @@
     if (vendorNav) vendorNav.textContent = "회사정보";
     const loginTitle = document.querySelector("#login h1");
     if (loginTitle) loginTitle.textContent = "협력사 포털";
+    const userLabel = document.querySelector("#login-user-label span");
+    if (userLabel) userLabel.textContent = "협력사코드";
   }
 
   function renderCriteria() {
@@ -821,8 +850,54 @@
   }
 
   function closeNotice() {
+    noticeAction = null;
     const panel = $("notice");
     if (panel) panel.hidden = true;
+    const cancel = $("notice-cancel");
+    if (cancel) cancel.hidden = true;
+    const button = $("notice-ok");
+    if (button) {
+      button.textContent = "확인";
+      button.classList.remove("danger");
+    }
+  }
+
+  function confirmNotice(message, onYes) {
+    const panel = $("notice");
+    const text = $("notice-text");
+    const button = $("notice-ok");
+    const cancel = $("notice-cancel");
+    if (!panel || !text) return;
+    noticeAction = onYes;
+    text.textContent = message;
+    panel.hidden = false;
+    if (cancel) cancel.hidden = false;
+    if (button) {
+      button.textContent = "초기화";
+      button.classList.add("danger");
+      button.focus();
+    }
+  }
+
+  function resetVendorPassword() {
+    const vendor = selectedVendor();
+    if (!vendor || vendor.draft) return;
+    const name = vendor.name || vendor.code;
+    confirmNotice(name + " 비밀번호를 초기화하면 기존 로그인은 끊깁니다. 협력사는 다음에 로그인할 때 비밀번호를 다시 설정합니다.", () => {
+      const headers = { Accept: "application/json" };
+      const token = sessionStorage.getItem("scm.accessToken");
+      if (token) headers.Authorization = "Bearer " + token;
+      fetch(apiBase() + "/suppliers/" + encodeURIComponent(vendor.code) + "/password-reset", {
+        method: "POST",
+        headers: headers
+      })
+        .then(async (response) => {
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(body.message || "비밀번호를 초기화하지 못했습니다.");
+          toast("비밀번호를 초기화했습니다. 협력사는 로그인할 때 비밀번호를 다시 설정합니다.");
+        })
+        .catch((error) => toast(error.message || "비밀번호를 초기화하지 못했습니다."));
+    });
   }
 
   function saveVendor() {
@@ -1628,7 +1703,10 @@
       .catch(() => ({ configured: false }))
       .then((body) => {
         if (body && body.configured) startAuth();
-        else finishBoot();
+        else {
+          if (supplier) loadSuppliers();
+          finishBoot();
+        }
       });
   }
 
@@ -1642,7 +1720,8 @@
       showLogin();
       return;
     }
-    fetch(apiBase() + "/auth/me", { headers: { Authorization: "Bearer " + token } })
+    const sessionPath = supplier ? "/auth/supplier/session" : "/auth/me";
+    fetch(apiBase() + sessionPath, { headers: { Authorization: "Bearer " + token } })
       .then(async (response) => {
         if (!response.ok) throw new Error("unauthorized");
         return response.json();
@@ -1655,6 +1734,7 @@
   }
 
   function showLogin() {
+    setSupplierSetup(false);
     const panel = $("login");
     if (panel) panel.hidden = false;
     finishBoot();
@@ -1671,6 +1751,12 @@
     if (button) button.hidden = false;
     const error = $("login-error");
     if (error) error.textContent = "";
+    if (supplier) {
+      state.supplierCode = me.username || "";
+      const company = document.querySelector(".session strong");
+      if (company) company.textContent = me.name || "";
+      loadSuppliers();
+    }
     finishBoot();
   }
 
@@ -1683,12 +1769,27 @@
     showLogin();
   }
 
+  function setSupplierSetup(on) {
+    supplierSetup = on;
+    const confirm = $("login-confirm-label");
+    if (confirm) confirm.hidden = !on;
+    const submit = $("login-submit");
+    if (submit) submit.textContent = on ? "비밀번호 설정" : "로그인";
+    const password = document.querySelector('#login-form input[name="password"]');
+    if (password) password.autocomplete = on ? "new-password" : "current-password";
+  }
+
   function submitLogin(event) {
     event.preventDefault();
     const form = event.target;
     const username = String(new FormData(form).get("username") || "");
     const password = String(new FormData(form).get("password") || "");
     const error = $("login-error");
+    if (supplier) {
+      if (supplierSetup) setSupplierPassword(username, password, String(new FormData(form).get("confirm") || ""));
+      else supplierLogin(username, password);
+      return;
+    }
     fetch(apiBase() + "/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -1710,12 +1811,72 @@
       });
   }
 
+  function supplierLogin(code, password) {
+    fetch(apiBase() + "/auth/supplier/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ code: code, password: password })
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (response.status === 409 && payload.code === "password_unset") {
+          setSupplierSetup(true);
+          toast("비밀번호를 설정하세요. 8자 이상으로 입력한 뒤 한 번 더 확인합니다.");
+          const confirm = document.querySelector('#login-form input[name="confirm"]');
+          if (confirm) confirm.focus();
+          return;
+        }
+        if (!response.ok) {
+          toast(payload.message || "로그인하지 못했습니다.");
+          return;
+        }
+        sessionStorage.setItem("scm.accessToken", payload.access_token);
+        enterSession(payload);
+      })
+      .catch(() => toast("인증 서버에 연결하지 못했습니다."));
+  }
+
+  function setSupplierPassword(code, password, confirm) {
+    if (password.length < 8) {
+      toast("비밀번호는 8자 이상으로 입력하세요.");
+      return;
+    }
+    if (password !== confirm) {
+      toast("비밀번호가 서로 다릅니다.");
+      return;
+    }
+    fetch(apiBase() + "/auth/supplier/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ code: code, password: password })
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          toast(payload.message || "비밀번호를 설정하지 못했습니다.");
+          return;
+        }
+        setSupplierSetup(false);
+        sessionStorage.setItem("scm.accessToken", payload.access_token);
+        enterSession(payload);
+        toast("비밀번호를 설정했습니다.");
+      })
+      .catch(() => toast("인증 서버에 연결하지 못했습니다."));
+  }
+
   function countText(count) { return count + "건을 조회했습니다."; }
   function toast(message) {
+    noticeAction = null;
     const panel = $("notice");
     const text = $("notice-text");
     const button = $("notice-ok");
+    const cancel = $("notice-cancel");
     if (!panel || !text) return;
+    if (cancel) cancel.hidden = true;
+    if (button) {
+      button.textContent = "확인";
+      button.classList.remove("danger");
+    }
     text.textContent = message;
     panel.hidden = false;
     if (button) button.focus();

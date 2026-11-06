@@ -150,7 +150,7 @@ html.boot .app { visibility: hidden; }
   padding: 18px 16px 8px;
   line-height: 1.5;
 }
-.notice-actions { display: flex; justify-content: flex-end; padding: 8px 14px 14px; }
+.notice-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 14px 14px; }
 .login-error {
   min-height: 18px;
   margin: 8px 14px 0;
