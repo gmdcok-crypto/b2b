@@ -364,8 +364,10 @@
           ? fieldSelect(record, field)
           : el("input", fieldInputAttrs(record, field, editable));
         if (editable && !field.options) {
+          if (field.biz) bindBizNoInput(input, record);
           input.addEventListener("input", () => {
-            record[field.key] = input.value;
+            if (field.biz) applyBizNoInput(input, record);
+            else record[field.key] = input.value;
             syncListRow(record);
             paintTab();
             renderStatus();
@@ -633,7 +635,7 @@
         [
           { label: "협력사코드", key: "code", edit: !!record.draft },
           { label: "사용", key: "use" },
-          { label: "사업자번호", key: "bizNo", edit: true },
+          { label: "사업자번호", key: "bizNo", edit: true, biz: true },
           { label: "전화", key: "phone", edit: true }
         ],
         [{ label: "협력사명", key: "name", edit: true, span: true }],
@@ -957,7 +959,58 @@
     const digits = String(value || "").replace(/\D/g, "");
     if (!digits) return "";
     if (digits.length !== 10) return null;
-    return digits.slice(0, 3) + "-" + digits.slice(3, 5) + "-" + digits.slice(5);
+    return formatBizNo(digits);
+  }
+
+  function formatBizNo(digits) {
+    const value = String(digits || "").replace(/\D/g, "").slice(0, 10);
+    if (value.length <= 3) return value;
+    if (value.length <= 5) return value.slice(0, 3) + "-" + value.slice(3);
+    return value.slice(0, 3) + "-" + value.slice(3, 5) + "-" + value.slice(5);
+  }
+
+  function bizNoCaret(formatted, digitCount) {
+    if (digitCount <= 0) return 0;
+    let seen = 0;
+    for (let index = 0; index < formatted.length; index += 1) {
+      if (/\d/.test(formatted.charAt(index))) {
+        seen += 1;
+        if (seen === digitCount) return index + 1;
+      }
+    }
+    return formatted.length;
+  }
+
+  function applyBizNoInput(input, record) {
+    const caretDigits = String(input.value).slice(0, input.selectionStart).replace(/\D/g, "").length;
+    const formatted = formatBizNo(input.value);
+    input.value = formatted;
+    record.bizNo = formatted;
+    const caret = bizNoCaret(formatted, caretDigits);
+    input.setSelectionRange(caret, caret);
+  }
+
+  function bindBizNoInput(input, record) {
+    input.addEventListener("keydown", (event) => {
+      if (input.selectionStart !== input.selectionEnd) return;
+      const pos = input.selectionStart;
+      const hyphenBackspace = event.key === "Backspace" && pos > 0 && input.value.charAt(pos - 1) === "-";
+      const hyphenDelete = event.key === "Delete" && input.value.charAt(pos) === "-";
+      if (!hyphenBackspace && !hyphenDelete) return;
+      event.preventDefault();
+      const digits = input.value.replace(/\D/g, "");
+      const digitIndex = input.value.slice(0, pos).replace(/\D/g, "").length;
+      const removeAt = hyphenBackspace ? digitIndex - 1 : digitIndex;
+      const next = digits.slice(0, removeAt) + digits.slice(removeAt + 1);
+      const formatted = formatBizNo(next);
+      input.value = formatted;
+      record.bizNo = formatted;
+      const caret = bizNoCaret(formatted, removeAt);
+      input.setSelectionRange(caret, caret);
+      syncListRow(record);
+      paintTab();
+      renderStatus();
+    });
   }
 
   function vendorNames(current) {
@@ -1504,6 +1557,11 @@
     };
     if (editable && field.date) attrs.type = "date";
     if (editable && field.money) attrs.inputMode = "decimal";
+    if (editable && field.biz) {
+      attrs.inputMode = "numeric";
+      attrs.maxLength = "12";
+      attrs.placeholder = "000-00-00000";
+    }
     return attrs;
   }
   function selectedOrder() { return data.orders.find((order) => order.id === state.selectedId) || null; }
