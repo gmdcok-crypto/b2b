@@ -34,7 +34,13 @@ def db_session() -> Generator[Session, None, None]:
         raise AppError("database_not_configured", "데이터베이스가 연결되지 않았습니다.", 503) from exc
 
 
-def to_public(row: Supplier) -> dict[str, str]:
+def auth_label(account: SupplierAccount | None) -> str:
+    if account is not None and account.password_hash and account.password_set_at is not None:
+        return "인증"
+    return "미인증"
+
+
+def to_public(row: Supplier, account: SupplierAccount | None = None) -> dict[str, str]:
     return {
         "code": row.code,
         "name": row.name,
@@ -43,7 +49,12 @@ def to_public(row: Supplier) -> dict[str, str]:
         "phone": row.phone or "",
         "email": row.email or "",
         "use": row.use_status,
+        "auth": auth_label(account),
     }
+
+
+def account_for(db: Session, supplier_id: int) -> SupplierAccount | None:
+    return db.scalar(select(SupplierAccount).where(SupplierAccount.supplier_id == supplier_id))
 
 
 def clean_code(value: str) -> str:
@@ -96,7 +107,13 @@ def apply_fields(row: Supplier, body: SupplierBody, *, code: str | None) -> None
 @router.get("/suppliers")
 def list_suppliers(db: Session = Depends(db_session)) -> list[dict[str, str]]:
     rows = db.scalars(select(Supplier).order_by(Supplier.code)).all()
-    return [to_public(row) for row in rows]
+    accounts = []
+    if rows:
+        accounts = db.scalars(
+            select(SupplierAccount).where(SupplierAccount.supplier_id.in_([row.id for row in rows]))
+        ).all()
+    by_supplier = {account.supplier_id: account for account in accounts}
+    return [to_public(row, by_supplier.get(row.id)) for row in rows]
 
 
 @router.post("/suppliers", status_code=201)
@@ -110,7 +127,7 @@ def create_supplier(body: SupplierBody, db: Session = Depends(db_session)) -> di
         db.rollback()
         raise duplicate_error(exc) from exc
     db.refresh(row)
-    return to_public(row)
+    return to_public(row, account_for(db, row.id))
 
 
 @router.patch("/suppliers/{code}")
@@ -123,7 +140,7 @@ def update_supplier(code: str, body: SupplierBody, db: Session = Depends(db_sess
         db.rollback()
         raise duplicate_error(exc) from exc
     db.refresh(row)
-    return to_public(row)
+    return to_public(row, account_for(db, row.id))
 
 
 @router.post("/suppliers/{code}/password-reset")

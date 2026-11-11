@@ -63,6 +63,9 @@ def test_reset_clears_password_and_old_session(auth_env, supplier_client: TestCl
     token = first.json()["access_token"]
     assert first.json()["username"] == "V-0001"
 
+    listed = supplier_client.get("/suppliers")
+    assert listed.json()[0]["auth"] == "인증"
+
     session = supplier_client.get("/auth/supplier/session", headers={"Authorization": "Bearer " + token})
     assert session.status_code == 200
     assert session.json()["name"] == "한빛금속"
@@ -83,6 +86,8 @@ def test_reset_clears_password_and_old_session(auth_env, supplier_client: TestCl
     )
     assert reset.status_code == 200
     assert reset.json() == {"code": "V-0001", "passwordSet": False}
+    cleared = supplier_client.get("/suppliers")
+    assert cleared.json()[0]["auth"] == "미인증"
 
     stale = supplier_client.get("/auth/supplier/session", headers={"Authorization": "Bearer " + token})
     assert stale.status_code == 401

@@ -562,7 +562,8 @@
         { key: "bizNo", label: "사업자번호", width: "120px" },
         { key: "contact", label: "담당자", width: "88px" },
         { key: "phone", label: "전화", width: "120px" },
-        { key: "use", label: "사용", width: "64px", render: (row) => stateNode(row.use) }
+        { key: "use", label: "사용", width: "64px", render: (row) => stateNode(row.use) },
+        { key: "auth", label: "인증유무", width: "72px", render: (row) => stateNode(row.auth || "미인증") }
       ];
     }
     return [
@@ -828,6 +829,7 @@
       phone: "",
       email: "",
       use: "사용",
+      auth: "미인증",
       draft: true
     };
     data.vendors.unshift(vendor);
@@ -894,6 +896,8 @@
         .then(async (response) => {
           const body = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(body.message || "비밀번호를 초기화하지 못했습니다.");
+          vendor.auth = "미인증";
+          syncListRow(vendor);
           toast("비밀번호를 초기화했습니다. 협력사는 로그인할 때 비밀번호를 다시 설정합니다.");
         })
         .catch((error) => toast(error.message || "비밀번호를 초기화하지 못했습니다."));
@@ -1415,6 +1419,7 @@
       cells[3].textContent = record.contact;
       cells[4].textContent = record.phone;
       cells[5].replaceChildren(stateNode(record.use));
+      cells[6].replaceChildren(stateNode(record.auth || "미인증"));
     }
   }
 
@@ -1579,8 +1584,8 @@
     return el("span", { class: "state " + stateClass(value) }, value || "");
   }
   function stateClass(value) {
-    if (["확정", "적용중", "승인", "사용", "등록"].includes(value)) return "ok";
-    if (["승인대기", "변경요청"].includes(value)) return "wait";
+    if (["확정", "적용중", "승인", "사용", "등록", "인증"].includes(value)) return "ok";
+    if (["승인대기", "변경요청", "미인증"].includes(value)) return "wait";
     if (["취소", "반려", "중지"].includes(value)) return "stop";
     if (["종료"].includes(value)) return "mute";
     return "";

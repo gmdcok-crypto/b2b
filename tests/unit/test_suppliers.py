@@ -47,6 +47,7 @@ def test_create_supplier_then_list_only_saved_row(supplier_client: TestClient) -
     assert created.json()["code"] == "V-NEW"
     assert created.json()["bizNo"] == "123-45-67890"
     assert created.json()["use"] == "사용"
+    assert created.json()["auth"] == "미인증"
 
     listed = supplier_client.get("/suppliers")
     assert [row["code"] for row in listed.json()] == ["V-NEW"]
