@@ -1,19 +1,17 @@
 (function () {
   const supplier = isSupplierPortal();
-  const data = supplier
-    ? { orders: [], prices: [], items: [], vendors: [], audit: [] }
-    : window.SAMPLE;
-  if (!supplier) data.vendors = [];
+  const data = { orders: [], prices: [], items: [], vendors: [], audit: [] };
   const TITLES = { orders: "발주", prices: "단가", items: "품목", vendors: "협력사", audit: "이력" };
   const ITEM_GROUPS = ["원자재", "기자재", "가공품", "포장", "보전", "사출", "소모품"];
   const ITEM_UNITS = ["EA", "M", "KG", "BOX"];
   let itemSeq = 1;
   let vendorSeq = 1;
+  let orderSeq = 1;
   let noticeAction = null;
   let supplierSetup = false;
   const state = {
     module: "orders",
-    selectedId: data.orders.length ? data.orders[0].id : "",
+    selectedId: "",
     sortKey: "date",
     sortDir: "desc",
     split: 42,
@@ -34,7 +32,6 @@
   });
 
   if (supplier) applySupplierShell();
-  if (!supplier) loadSuppliers();
   openModule("orders");
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
   checkApi();
@@ -116,7 +113,7 @@
         { label: "조회", kind: "primary", run: () => toast(countText(filtered().length)) },
         "|",
         { label: "신규", run: newOrder },
-        { label: "저장", enable: () => order && order.status === "작성", run: () => toast("화면의 작성 내용을 유지했습니다. 서버 저장은 아직 연결되지 않았습니다.") },
+        { label: "저장", enable: () => order && order.status === "작성", run: saveOrder },
         "|",
         { label: "확정", enable: () => order && order.status === "작성", run: confirmOrder },
         { label: "발주취소", kind: "danger", enable: () => order && order.status === "확정", run: cancelOrder },
@@ -221,32 +218,74 @@
     return rows.length === 1 ? rows[0] : { code: "", name: "", contact: "" };
   }
 
-  function loadSuppliers() {
-    fetch(apiBase() + "/suppliers", { headers: { Accept: "application/json" } })
+  function authHeaders(json) {
+    const headers = { Accept: "application/json" };
+    if (json) headers["Content-Type"] = "application/json";
+    const token = sessionStorage.getItem("scm.accessToken");
+    if (token) headers.Authorization = "Bearer " + token;
+    return headers;
+  }
+
+  function fetchList(path) {
+    return fetch(apiBase() + path, { headers: authHeaders(false) })
       .then(async (response) => {
         if (!response.ok) return [];
         const body = await response.json().catch(() => []);
         return Array.isArray(body) ? body : [];
       })
-      .then((rows) => {
-        if (supplier && state.supplierCode) {
-          const code = String(state.supplierCode).toUpperCase();
-          rows = rows.filter((row) => String(row.code || "").toUpperCase() === code);
-        }
-        data.vendors = rows.map((row) => Object.assign({ savedName: row.name }, row));
-        if (supplier) {
-          const company = supplierCompany();
-          const companyNode = document.querySelector(".session strong");
-          if (companyNode) companyNode.textContent = company.name;
-          const person = $("session-name");
-          if (person) person.textContent = company.contact;
-        }
-        if (!filtered().some((row) => rowId(row) === state.selectedId)) state.selectedId = firstId(filtered());
-        renderWorkspace();
-        renderCommand();
-        renderStatus();
-      })
-      .catch(() => {});
+      .catch(() => []);
+  }
+
+  function loadSuppliers() {
+    Promise.all([
+      fetchList("/orders"),
+      fetchList("/prices"),
+      fetchList("/items"),
+      fetchList("/suppliers"),
+      fetchList("/audit")
+    ]).then(([orders, prices, items, vendors, audit]) => {
+      const drafts = {
+        orders: data.orders.filter((row) => row.draft),
+        prices: data.prices.filter((row) => row.draft),
+        items: data.items.filter((row) => row.draft),
+        vendors: data.vendors.filter((row) => row.draft)
+      };
+      data.orders = drafts.orders.concat(orders);
+      data.prices = drafts.prices.concat(prices);
+      data.items = drafts.items.concat(items);
+      let vendorRows = vendors.map((row) => Object.assign({ savedName: row.name }, row));
+      if (supplier && state.supplierCode) {
+        const code = String(state.supplierCode).toUpperCase();
+        vendorRows = vendorRows.filter((row) => String(row.code || "").toUpperCase() === code);
+      }
+      data.vendors = drafts.vendors.concat(vendorRows);
+      data.audit = audit;
+      if (supplier) {
+        const company = supplierCompany();
+        const companyNode = document.querySelector(".session strong");
+        if (companyNode && company.name) companyNode.textContent = company.name;
+        const person = $("session-name");
+        if (person && company.contact) person.textContent = company.contact;
+      }
+      if (!filtered().some((row) => rowId(row) === state.selectedId)) state.selectedId = firstId(filtered());
+      renderWorkspace();
+      renderCommand();
+      renderStatus();
+    });
+  }
+
+  function applySaved(record, body) {
+    const saved = body.record || body;
+    Object.assign(record, saved);
+    record.draft = false;
+    delete record.tempId;
+    state.selectedId = rowId(record);
+    if (body.audit) data.audit.unshift(body.audit);
+    paintList();
+    paintDetail();
+    renderCommand();
+    renderStatus();
+    return record;
   }
 
   function applySupplierShell() {
@@ -762,24 +801,25 @@
       return;
     }
     applyPriceItem(price);
-    price.vendor = vendor;
-    price.price = Number(amount);
-    price.note = String(price.note || "").trim();
-    price.request = "";
-    price.status = "적용중";
-    price.draft = false;
-    price.history.unshift({
-      date: formatDate(new Date()),
-      type: "등록",
-      before: "",
-      after: price.price,
-      by: "김구매",
-      note: price.note
-    });
-    pushAudit("등록", price.code, "", money(price.price), price.vendor);
-    paintList();
-    paintDetail();
-    toast("계약단가를 등록했습니다. 서버 저장은 아직 연결되지 않았습니다.");
+    fetch(apiBase() + "/prices", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        code: price.code,
+        vendor: vendor,
+        price: Number(amount),
+        from: price.from,
+        to: price.to || "",
+        note: String(price.note || "").trim()
+      })
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || "계약단가를 저장하지 못했습니다.");
+        applySaved(price, body);
+        toast("계약단가를 등록했습니다.");
+      })
+      .catch((error) => toast(error.message || "계약단가를 저장하지 못했습니다."));
   }
 
   function applyPriceItem(record) {
@@ -886,12 +926,9 @@
     if (!vendor || vendor.draft) return;
     const name = vendor.name || vendor.code;
     confirmNotice(name + " 비밀번호를 초기화하면 기존 로그인은 끊깁니다. 협력사는 다음에 로그인할 때 비밀번호를 다시 설정합니다.", () => {
-      const headers = { Accept: "application/json" };
-      const token = sessionStorage.getItem("scm.accessToken");
-      if (token) headers.Authorization = "Bearer " + token;
       fetch(apiBase() + "/suppliers/" + encodeURIComponent(vendor.code) + "/password-reset", {
         method: "POST",
-        headers: headers
+        headers: authHeaders(false)
       })
         .then(async (response) => {
           const body = await response.json().catch(() => ({}));
@@ -960,7 +997,7 @@
     const path = creating ? "/suppliers" : "/suppliers/" + encodeURIComponent(vendor.code);
     fetch(apiBase() + path, {
       method: creating ? "POST" : "PATCH",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: authHeaders(true),
       body: JSON.stringify(payload)
     })
       .then(async (response) => {
@@ -998,7 +1035,7 @@
     vendor.use = next;
     fetch(apiBase() + "/suppliers/" + encodeURIComponent(vendor.code), {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: authHeaders(true),
       body: JSON.stringify({
         name: vendor.name,
         bizNo: vendor.bizNo || "",
@@ -1155,16 +1192,27 @@
       return;
     }
     const creating = !!item.draft;
-    item.code = code;
-    item.name = name;
-    item.spec = String(item.spec || "").trim();
-    item.draft = false;
-    delete item.tempId;
-    state.selectedId = item.code;
-    pushAudit(creating ? "등록" : "수정", item.code, "", item.name, item.spec);
-    paintList();
-    paintDetail();
-    toast(creating ? "품목을 등록했습니다. 서버 저장은 아직 연결되지 않았습니다." : "품목을 수정했습니다. 서버 저장은 아직 연결되지 않았습니다.");
+    const payload = {
+      code: code,
+      name: name,
+      spec: String(item.spec || "").trim(),
+      unit: item.unit,
+      group: item.group,
+      use: item.use || "사용"
+    };
+    const path = creating ? "/items" : "/items/" + encodeURIComponent(item.code);
+    fetch(apiBase() + path, {
+      method: creating ? "POST" : "PATCH",
+      headers: authHeaders(true),
+      body: JSON.stringify(payload)
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || "품목을 저장하지 못했습니다.");
+        applySaved(item, body);
+        toast(creating ? "품목을 등록했습니다." : "품목을 수정했습니다.");
+      })
+      .catch((error) => toast(error.message || "품목을 저장하지 못했습니다."));
   }
 
   function setItemUse(next) {
@@ -1172,27 +1220,41 @@
     if (!item || item.draft) return;
     const before = item.use;
     if (before === next) return;
-    item.use = next;
-    pushAudit(next === "중지" ? "사용중지" : "사용재개", item.code, before, next, "");
-    const stillVisible = filtered().some((row) => row.code === item.code);
-    if (!stillVisible) {
-      state.selectedId = firstId(filtered());
-      paintList();
-      paintDetail();
-    } else {
-      syncListRow(item);
-      paintDetail();
-    }
-    toast(next === "중지" ? "사용 중지로 바꿨습니다. 기존 발주와 단가는 유지됩니다." : "사용으로 바꿨습니다.");
+    fetch(apiBase() + "/items/" + encodeURIComponent(item.code), {
+      method: "PATCH",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        name: item.name,
+        spec: item.spec || "",
+        unit: item.unit,
+        group: item.group,
+        use: next
+      })
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || "사용 여부를 바꾸지 못했습니다.");
+        applySaved(item, body);
+        const stillVisible = filtered().some((row) => row.code === item.code);
+        if (!stillVisible) {
+          state.selectedId = firstId(filtered());
+          paintList();
+          paintDetail();
+        }
+        toast(next === "중지" ? "사용 중지로 바꿨습니다. 기존 발주와 단가는 유지됩니다." : "사용으로 바꿨습니다.");
+      })
+      .catch((error) => toast(error.message || "사용 여부를 바꾸지 못했습니다."));
   }
 
   function newOrder() {
     const order = {
-      id: nextOrderId(),
+      tempId: "ONEW-" + orderSeq++,
+      id: "",
+      draft: true,
       date: formatDate(new Date()),
       due: formatDate(new Date()),
       vendor: "",
-      buyer: "김구매",
+      buyer: actor(),
       status: "작성",
       currency: "KRW",
       vat: "별도",
@@ -1202,33 +1264,91 @@
     data.orders.unshift(order);
     state.filters = {};
     renderCriteria();
-    state.selectedId = order.id;
+    state.selectedId = order.tempId;
     renderWorkspace();
     toast("작성 문서를 열었습니다.");
     const input = $("composite").querySelector('.detail-pane input[data-field="vendor"]');
     if (input) input.focus();
   }
 
+  function orderPayload(order) {
+    return {
+      date: order.date,
+      due: order.due,
+      vendor: order.vendor,
+      buyer: order.buyer,
+      currency: order.currency || "KRW",
+      vat: order.vat || "별도",
+      note: order.note || "",
+      lines: (order.lines || []).map((line) => ({
+        code: line.code || "",
+        name: line.name || "",
+        spec: line.spec || "",
+        unit: line.unit || "",
+        qty: Number(line.qty || 0),
+        price: Number(String(line.price || 0).replace(/,/g, "")),
+        due: line.due || ""
+      }))
+    };
+  }
+
+  function persistOrder(order) {
+    const creating = !!order.draft || !order.id;
+    const path = creating ? "/orders" : "/orders/" + encodeURIComponent(order.id);
+    return fetch(apiBase() + path, {
+      method: creating ? "POST" : "PATCH",
+      headers: authHeaders(true),
+      body: JSON.stringify(orderPayload(order))
+    }).then(async (response) => {
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || "발주를 저장하지 못했습니다.");
+      applySaved(order, body);
+      return order;
+    });
+  }
+
+  function saveOrder() {
+    const order = selectedOrder();
+    if (!order || order.status !== "작성") return;
+    persistOrder(order)
+      .then(() => toast("발주를 저장했습니다."))
+      .catch((error) => toast(error.message || "발주를 저장하지 못했습니다."));
+  }
+
   function confirmOrder() {
     const order = selectedOrder();
-    if (!order.lines.some((line) => Number(line.qty) > 0 && line.code)) {
+    if (!order || !order.lines.some((line) => Number(line.qty) > 0 && line.code)) {
       toast("품목코드와 수량이 있는 행이 없습니다.");
       return;
     }
-    order.status = "확정";
-    pushAudit("확정", order.id, "작성", "확정", "");
-    syncListRow(order);
-    paintDetail();
-    toast("화면에서 확정으로 표시했습니다.");
+    const send = (saved) => fetch(apiBase() + "/orders/" + encodeURIComponent(saved.id) + "/confirm", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify(orderPayload(saved))
+    }).then(async (response) => {
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || "발주를 확정하지 못했습니다.");
+      applySaved(saved, body);
+      toast("발주를 확정했습니다.");
+    });
+    const pending = order.draft || !order.id ? persistOrder(order) : Promise.resolve(order);
+    pending.then(send).catch((error) => toast(error.message || "발주를 확정하지 못했습니다."));
   }
 
   function cancelOrder() {
     const order = selectedOrder();
-    order.status = "취소";
-    pushAudit("취소", order.id, "확정", "취소", "");
-    syncListRow(order);
-    paintDetail();
-    toast("화면에서 취소로 표시했습니다.");
+    if (!order || order.draft) return;
+    fetch(apiBase() + "/orders/" + encodeURIComponent(order.id) + "/cancel", {
+      method: "POST",
+      headers: authHeaders(false)
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || "발주를 취소하지 못했습니다.");
+        applySaved(order, body);
+        toast("발주를 취소했습니다.");
+      })
+      .catch((error) => toast(error.message || "발주를 취소하지 못했습니다."));
   }
 
   function requestPrice() {
@@ -1238,39 +1358,34 @@
       toast("현재단가와 다른 요청단가를 입력하세요.");
       return;
     }
-    price.status = "승인대기";
-    price.history.unshift({
-      date: formatDate(new Date()),
-      type: "변경요청",
-      before: price.price,
-      after: next,
-      by: actor(),
-      note: ""
-    });
-    pushAudit("변경요청", price.code, money(price.price), money(next), "");
-    syncListRow(price);
-    paintDetail();
-    toast("변경 요청을 승인 대기로 표시했습니다.");
+    fetch(apiBase() + "/prices/" + encodeURIComponent(price.id) + "/request", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({ request: next })
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || "변경 요청을 저장하지 못했습니다.");
+        applySaved(price, body);
+        toast("변경 요청을 승인 대기로 저장했습니다.");
+      })
+      .catch((error) => toast(error.message || "변경 요청을 저장하지 못했습니다."));
   }
 
   function decidePrice(type) {
     const price = selectedPrice();
-    const pending = price.history.find((row) => row.type === "변경요청");
-    const after = pending ? pending.after : Number(price.request);
-    if (type === "승인") {
-      price.history.unshift({ date: formatDate(new Date()), type: "승인", before: price.price, after: after, by: "김구매", note: "" });
-      price.price = after;
-      price.request = "";
-      price.status = "적용중";
-    } else {
-      price.history.unshift({ date: formatDate(new Date()), type: "반려", before: price.price, after: after, by: "김구매", note: "" });
-      price.request = "";
-      price.status = "적용중";
-    }
-    pushAudit(type, price.code, money(price.history[0].before), money(after), "");
-    syncListRow(price);
-    paintDetail();
-    toast(type === "승인" ? "화면에서 단가를 승인했습니다." : "화면에서 요청을 반려했습니다.");
+    fetch(apiBase() + "/prices/" + encodeURIComponent(price.id) + "/decide", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({ type: type })
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || "단가를 처리하지 못했습니다.");
+        applySaved(price, body);
+        toast(type === "승인" ? "단가를 승인했습니다." : "요청을 반려했습니다.");
+      })
+      .catch((error) => toast(error.message || "단가를 처리하지 못했습니다."));
   }
 
   function pushAudit(action, target, before, after, note) {
@@ -1434,7 +1549,7 @@
     const tab = $("doc-tab");
     const record = selectedRecord();
     let text = TITLES[state.module];
-    if (record && state.module === "orders") text = record.id + " 발주";
+    if (record && state.module === "orders") text = (record.id || "신규") + " 발주";
     else if (record && state.module === "prices") text = record.code + " 단가";
     else if (record && state.module === "items") text = (record.code || "신규") + " 품목";
     else if (record && state.module === "vendors") text = (record.code || "신규") + " 협력사";
@@ -1644,7 +1759,9 @@
     }
     return attrs;
   }
-  function selectedOrder() { return data.orders.find((order) => order.id === state.selectedId) || null; }
+  function selectedOrder() {
+    return data.orders.find((order) => (order.draft ? order.tempId : order.id) === state.selectedId) || null;
+  }
   function selectedPrice() { return data.prices.find((price) => price.id === state.selectedId) || null; }
   function lineRecords(record) {
     if (state.module === "orders") return record.lines;
@@ -1656,7 +1773,7 @@
     return data.prices.filter((price) => price.code === code && !price.draft && (!supplier || supplierOwns(price.vendor)));
   }
   function rowId(row) {
-    if (state.module === "orders") return row.id;
+    if (state.module === "orders") return row.draft ? row.tempId : row.id;
     if (state.module === "prices") return row.id;
     if (state.module === "items") return row.draft ? row.tempId : row.code;
     if (state.module === "vendors") return row.draft ? row.tempId : row.code;
@@ -1667,10 +1784,6 @@
   function lineAmount(line) { return Math.round(Number(line.qty || 0) * Number(line.price || 0)); }
   function orderBlob(order) {
     return (order.id + order.vendor + order.lines.map((line) => line.code + line.name).join("")).toLowerCase();
-  }
-  function nextOrderId() {
-    const nums = data.orders.map((order) => Number(order.id.slice(-4))).filter((num) => !Number.isNaN(num));
-    return "PO-202611-" + String(Math.max(0, ...nums) + 1).padStart(4, "0");
   }
   function listCaption() {
     return { orders: "발주 목록", prices: "계약 단가", items: "품목", vendors: supplier ? "회사 정보" : "협력사" }[state.module];
@@ -1709,7 +1822,7 @@
       .then((body) => {
         if (body && body.configured) startAuth();
         else {
-          if (supplier) loadSuppliers();
+          loadSuppliers();
           finishBoot();
         }
       });
@@ -1760,8 +1873,8 @@
       state.supplierCode = me.username || "";
       const company = document.querySelector(".session strong");
       if (company) company.textContent = me.name || "";
-      loadSuppliers();
     }
+    loadSuppliers();
     finishBoot();
   }
 

@@ -1,5 +1,5 @@
-const CACHE = "scm-shell-v2";
-const SHELL = ["/", "/css/app.css", "/js/app.js", "/js/sample.js", "/config.js", "/manifest.webmanifest", "/manifest-supplier.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const CACHE = "scm-shell-v3";
+const SHELL = ["/", "/css/app.css", "/js/app.js", "/config.js", "/manifest.webmanifest", "/manifest-supplier.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -16,7 +16,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== "GET" || url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith("/auth") || url.pathname.startsWith("/health")) return;
+  if (url.pathname.startsWith("/auth") || url.pathname.startsWith("/health") || url.pathname.startsWith("/suppliers") || url.pathname.startsWith("/items") || url.pathname.startsWith("/prices") || url.pathname.startsWith("/orders") || url.pathname.startsWith("/audit")) return;
   event.respondWith(networkFirst(event.request));
 });
 

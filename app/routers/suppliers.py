@@ -11,6 +11,7 @@ from app.core.errors import AppError
 from app.core.tokens import require_buyer
 from app.db.session import get_db
 from app.models.supplier import Supplier, SupplierAccount
+from app.services.audit import actor_name, add_audit
 
 router = APIRouter(tags=["suppliers"])
 CODE_PATTERN = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)*$")
@@ -117,10 +118,22 @@ def list_suppliers(db: Session = Depends(db_session)) -> list[dict[str, str]]:
 
 
 @router.post("/suppliers", status_code=201)
-def create_supplier(body: SupplierBody, db: Session = Depends(db_session)) -> dict[str, str]:
+def create_supplier(
+    body: SupplierBody,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(db_session),
+) -> dict[str, str]:
     row = Supplier(code="", name="", use_status="사용")
     apply_fields(row, body, code=clean_code(body.code))
     db.add(row)
+    add_audit(
+        db,
+        user=actor_name(authorization),
+        action="등록",
+        target=row.code,
+        after=row.name,
+        note=row.biz_no or "",
+    )
     try:
         db.commit()
     except IntegrityError as exc:
@@ -131,9 +144,37 @@ def create_supplier(body: SupplierBody, db: Session = Depends(db_session)) -> di
 
 
 @router.patch("/suppliers/{code}")
-def update_supplier(code: str, body: SupplierBody, db: Session = Depends(db_session)) -> dict[str, str]:
+def update_supplier(
+    code: str,
+    body: SupplierBody,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(db_session),
+) -> dict[str, str]:
     row = find_supplier(db, code)
+    before_name = row.name
+    before_use = row.use_status
     apply_fields(row, body, code=None)
+    if before_use != row.use_status and before_name == row.name:
+        action = "사용중지" if row.use_status == "중지" else "사용재개"
+        add_audit(
+            db,
+            user=actor_name(authorization),
+            action=action,
+            target=row.code,
+            before=before_use,
+            after=row.use_status,
+            note=row.name,
+        )
+    else:
+        add_audit(
+            db,
+            user=actor_name(authorization),
+            action="수정",
+            target=row.code,
+            before=before_name,
+            after=row.name,
+            note=row.biz_no or "",
+        )
     try:
         db.commit()
     except IntegrityError as exc:

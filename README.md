@@ -2,7 +2,7 @@
 
 구매 기업과 협력업체 간 품목·계약 단가, 단가 변경 승인, 발주, A4 출력을 다루는 포털이다.
 
-화면 파일은 `web/`에 있다. Railway는 `main` 브랜치의 저장소 루트에서 이 화면과 API를 한 서비스로 띄운다. Netlify는 같은 화면을 따로 배포할 때 쓴다. 단가·발주 규칙은 아직 서버에 없다. 미결 항목은 `docs/policy-decisions.md`에 있다.
+화면 파일은 `web/`에 있다. Railway는 `main` 브랜치의 저장소 루트에서 이 화면과 API를 한 서비스로 띄운다. Netlify는 같은 화면을 따로 배포할 때 쓴다. 품목, 계약 단가, 발주, 이력은 데이터베이스에 저장한다. 화면은 샘플 목록을 쓰지 않는다. 미결 항목은 `docs/policy-decisions.md`에 있다.
 
 ## 로컬 실행
 
@@ -49,7 +49,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 `https://gstec.netlify.app`, `https://b2bpart.netlify.app`과 로컬 화면 주소 `http://127.0.0.1:8888`, `http://localhost:8888`은 기본으로 허용한다. 그 밖의 출처는 `CORS_ORIGINS`에 있을 때만 브라우저 요청이 통과한다.
 
-시작 명령은 다음이다. 데이터베이스 URL이 있으면 협력사 테이블 마이그레이션을 먼저 실행한다.
+시작 명령은 다음이다. 데이터베이스 URL이 있으면 테이블 마이그레이션을 먼저 실행한다.
 
 ```text
 python -m app.db.migrate && uvicorn app.main:app --host 0.0.0.0 --port $PORT
@@ -59,12 +59,16 @@ python -m app.db.migrate && uvicorn app.main:app --host 0.0.0.0 --port $PORT
 
 ### 데이터베이스
 
-데이터베이스는 Railway MySQL이다. API 서비스에는 그 데이터베이스의 **비공개** 접속 URL을 `DATABASE_URL` 또는 `MYSQL_URL`로 넣는다. `mysql://`는 애플리케이션이 `mysql+pymysql://`로 바꿔 SQLAlchemy에 전달한다. URL이 있으면 컨테이너가 뜰 때 `alembic`으로 협력사 테이블을 만든다.
+데이터베이스는 Railway MySQL이다. API 서비스에는 그 데이터베이스의 **비공개** 접속 URL을 `DATABASE_URL` 또는 `MYSQL_URL`로 넣는다. `mysql://`는 애플리케이션이 `mysql+pymysql://`로 바꿔 SQLAlchemy에 전달한다. URL이 있으면 컨테이너가 뜰 때 `alembic`으로 협력사, 품목, 계약단가, 발주, 이력 테이블을 만든다.
 
 협력사 테이블은 세 개다.
 
 - `suppliers`: 협력사코드, 상호, 사업자번호, 담당자, 전화, 이메일, 사용 여부
 - `supplier_accounts`: 협력사당 비밀번호 해시 하나. 최초 설정 전에는 비어 있다
 - `supplier_invites`: 1회 링크의 토큰 해시, 만료 시각, 사용 시각. 비밀번호는 저장하지 않는다
+- `items`: 품목코드, 품목명, 규격, 단위, 분류, 사용 여부
+- `prices`, `price_histories`: 계약단가와 단가 변경 이력. 협력사는 이름이 아니라 `suppliers.id`로 연결한다
+- `orders`, `order_lines`: 발주 헤더와 행. 행의 품목코드는 발주 당시 값이다
+- `audit_logs`: 등록, 수정, 확정, 취소, 승인, 반려 이력
 
 백업, 복구 목표, 호스팅 소유자는 아직 정해지지 않았다.

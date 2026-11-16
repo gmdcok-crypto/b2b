@@ -37,6 +37,17 @@ def test_supplier_migration_creates_mysql_compatible_tables(tmp_path) -> None:
 
     engine = create_engine(url)
     names = set(inspect(engine).get_table_names())
-    assert {"suppliers", "supplier_accounts", "supplier_invites", "alembic_version"} <= names
+    assert {
+        "suppliers",
+        "supplier_accounts",
+        "supplier_invites",
+        "items",
+        "prices",
+        "price_histories",
+        "orders",
+        "order_lines",
+        "audit_logs",
+        "alembic_version",
+    } <= names
     supplier_uniques = {item["name"] for item in inspect(engine).get_unique_constraints("suppliers")}
     assert {"uq_suppliers_code", "uq_suppliers_name", "uq_suppliers_biz_no"} <= supplier_uniques

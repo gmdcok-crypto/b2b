@@ -1,0 +1,164 @@
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.core.config import get_settings
+from app.db.base import Base
+from app.main import app
+from app.routers.suppliers import db_session
+
+SECRET = "test-secret-value-with-32-bytes!!"
+
+
+@pytest.fixture
+def trade_client():
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def override():
+        db = sessions()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[db_session] = override
+    client = TestClient(app)
+    yield client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def auth_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("JWT_SECRET", SECRET)
+    monkeypatch.setenv("AUTH_USERNAME", "buyer")
+    monkeypatch.setenv("AUTH_PASSWORD", "secret-pass")
+    monkeypatch.setenv("AUTH_DISPLAY_NAME", "김구매")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def test_trade_lists_start_empty(trade_client: TestClient) -> None:
+    assert trade_client.get("/items").json() == []
+    assert trade_client.get("/prices").json() == []
+    assert trade_client.get("/orders").json() == []
+    assert trade_client.get("/audit").json() == []
+
+
+def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
+    supplier = trade_client.post("/suppliers", json={"code": "V-0001", "name": "한빛금속"})
+    assert supplier.status_code == 201
+
+    created = trade_client.post(
+        "/items",
+        json={"code": "al-1", "name": "알루미늄", "spec": "Ø20", "unit": "M", "group": "원자재"},
+    )
+    assert created.status_code == 201
+    assert created.json()["record"]["code"] == "AL-1"
+    assert created.json()["record"]["use"] == "사용"
+    assert created.json()["audit"]["action"] == "등록"
+
+    stopped = trade_client.patch("/items/AL-1", json={"name": "알루미늄", "spec": "Ø20", "unit": "M", "group": "원자재", "use": "중지"})
+    assert stopped.json()["record"]["use"] == "중지"
+    resumed = trade_client.patch("/items/AL-1", json={"name": "알루미늄", "spec": "Ø20", "unit": "M", "group": "원자재", "use": "사용"})
+    assert resumed.json()["audit"]["action"] == "사용재개"
+
+    denied = trade_client.post(
+        "/prices",
+        json={"code": "AL-1", "vendor": "없는회사", "price": 1000, "from": "2026-11-01"},
+    )
+    assert denied.status_code == 400
+
+    price = trade_client.post(
+        "/prices",
+        json={"code": "AL-1", "vendor": "한빛금속", "price": 4850, "from": "2026-11-01", "note": "계약"},
+    )
+    assert price.status_code == 201
+    assert price.json()["record"]["id"].startswith("PR-")
+    assert price.json()["record"]["status"] == "적용중"
+    assert price.json()["record"]["history"][0]["type"] == "등록"
+    price_id = price.json()["record"]["id"]
+
+    requested = trade_client.post("/prices/" + price_id + "/request", json={"request": 5000})
+    assert requested.json()["record"]["status"] == "승인대기"
+    approved = trade_client.post("/prices/" + price_id + "/decide", json={"type": "승인"})
+    assert approved.json()["record"]["price"] == 5000
+    assert approved.json()["record"]["status"] == "적용중"
+
+    order = trade_client.post(
+        "/orders",
+        json={
+            "date": "2026-11-16",
+            "due": "2026-11-20",
+            "vendor": "한빛금속",
+            "buyer": "김구매",
+            "lines": [{"code": "AL-1", "name": "알루미늄", "spec": "Ø20", "unit": "M", "qty": 2, "price": 5000, "due": "2026-11-20"}],
+        },
+    )
+    assert order.status_code == 201
+    assert order.json()["record"]["status"] == "작성"
+    doc = order.json()["record"]["id"]
+
+    confirmed = trade_client.post(
+        "/orders/" + doc + "/confirm",
+        json={
+            "date": "2026-11-16",
+            "due": "2026-11-20",
+            "vendor": "한빛금속",
+            "buyer": "김구매",
+            "lines": [{"code": "AL-1", "name": "알루미늄", "spec": "Ø20", "unit": "M", "qty": 2, "price": 5000, "due": "2026-11-20"}],
+        },
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["record"]["status"] == "확정"
+
+    cancelled = trade_client.post("/orders/" + doc + "/cancel")
+    assert cancelled.json()["record"]["status"] == "취소"
+    actions = [row["action"] for row in trade_client.get("/audit").json()]
+    assert "확정" in actions
+    assert "취소" in actions
+    assert "등록" in actions
+
+
+def test_supplier_sees_only_own_confirmed_order(auth_env, trade_client: TestClient) -> None:
+    buyer = trade_client.post("/auth/login", json={"username": "buyer", "password": "secret-pass"})
+    assert buyer.status_code == 200
+    buyer_headers = {"Authorization": "Bearer " + buyer.json()["access_token"]}
+    trade_client.post("/suppliers", json={"code": "V-0001", "name": "한빛금속"})
+    trade_client.post("/suppliers", json={"code": "V-0002", "name": "세진"})
+    created = trade_client.post(
+        "/items",
+        headers=buyer_headers,
+        json={"code": "AL-1", "name": "알루미늄", "unit": "M", "group": "원자재"},
+    )
+    assert created.status_code == 201
+    trade_client.post("/auth/supplier/password", json={"code": "V-0001", "password": "password1"})
+    token = trade_client.post("/auth/supplier/login", json={"code": "V-0001", "password": "password1"}).json()["access_token"]
+    headers = {"Authorization": "Bearer " + token}
+    payload = {"date": "2026-11-16", "due": "2026-11-20", "vendor": "한빛금속", "lines": [{"code": "AL-1", "qty": 1, "price": 10}]}
+
+    draft = trade_client.post("/orders", headers=buyer_headers, json=payload)
+    doc = draft.json()["record"]["id"]
+    hidden = trade_client.get("/orders", headers=headers)
+    assert hidden.status_code == 200
+    assert hidden.json() == []
+
+    trade_client.post("/orders/" + doc + "/confirm", headers=buyer_headers, json=payload)
+    visible = trade_client.get("/orders", headers=headers).json()
+    assert [row["id"] for row in visible] == [doc]
+    other_payload = {"date": "2026-11-16", "due": "2026-11-20", "vendor": "세진", "lines": [{"code": "AL-1", "qty": 1, "price": 10}]}
+    other = trade_client.post("/orders", headers=buyer_headers, json=other_payload)
+    other_doc = other.json()["record"]["id"]
+    trade_client.post("/orders/" + other_doc + "/confirm", headers=buyer_headers, json=other_payload)
+    again = trade_client.get("/orders", headers=headers).json()
+    assert [row["id"] for row in again] == [doc]
+    items = trade_client.get("/items", headers=headers).json()
+    assert [row["code"] for row in items] == ["AL-1"]
