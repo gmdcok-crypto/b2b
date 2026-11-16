@@ -229,6 +229,10 @@
   function fetchList(path) {
     return fetch(apiBase() + path, { headers: authHeaders(false) })
       .then(async (response) => {
+        if (response.status === 401 || response.status === 403) {
+          forceLogout();
+          return [];
+        }
         if (!response.ok) return [];
         const body = await response.json().catch(() => []);
         return Array.isArray(body) ? body : [];
@@ -244,6 +248,7 @@
       fetchList("/suppliers"),
       fetchList("/audit")
     ]).then(([orders, prices, items, vendors, audit]) => {
+      if (supplier && !sessionStorage.getItem("scm.accessToken")) return;
       const drafts = {
         orders: data.orders.filter((row) => row.draft),
         prices: data.prices.filter((row) => row.draft),
@@ -1845,16 +1850,27 @@
         return response.json();
       })
       .then((me) => enterSession(me))
-      .catch(() => {
-        sessionStorage.removeItem("scm.accessToken");
-        showLogin();
-      });
+      .catch(() => forceLogout());
+  }
+
+  function forceLogout() {
+    sessionStorage.removeItem("scm.accessToken");
+    state.supplierCode = "";
+    const button = $("logout");
+    if (button) button.hidden = true;
+    const name = $("session-name");
+    if (name) name.textContent = supplier ? "" : "김구매";
+    const company = document.querySelector(".session strong");
+    if (supplier && company) company.textContent = "";
+    showLogin();
   }
 
   function showLogin() {
     setSupplierSetup(false);
     const panel = $("login");
     if (panel) panel.hidden = false;
+    const button = $("logout");
+    if (button) button.hidden = true;
     finishBoot();
     const input = document.querySelector("#login-form input[name=username]");
     if (input) input.focus();
@@ -1879,12 +1895,7 @@
   }
 
   function logoutSession() {
-    sessionStorage.removeItem("scm.accessToken");
-    const name = $("session-name");
-    if (name) name.textContent = supplier ? supplierCompany().contact : "김구매";
-    const button = $("logout");
-    if (button) button.hidden = true;
-    showLogin();
+    forceLogout();
   }
 
   function setSupplierSetup(on) {

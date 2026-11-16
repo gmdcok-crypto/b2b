@@ -74,7 +74,12 @@ def scoped_supplier(db: Session, authorization: str | None) -> Supplier | None:
         return None
     if identity.get("role") != "supplier":
         return None
-    supplier = find_supplier(db, identity["username"])
+    try:
+        supplier = find_supplier(db, identity["username"])
+    except AppError as exc:
+        if exc.code == "not_found":
+            raise AppError("unauthorized", "로그인이 필요합니다.", 401) from exc
+        raise
     if supplier.use_status != "사용":
         raise AppError("supplier_stopped", "사용 중지된 협력사입니다.", 403)
     return supplier

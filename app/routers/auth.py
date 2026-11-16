@@ -102,7 +102,12 @@ def me(authorization: str | None = Header(default=None)) -> dict[str, str]:
 
 
 def usable_supplier(db: Session, code: str) -> Supplier:
-    supplier = find_supplier(db, code)
+    try:
+        supplier = find_supplier(db, code)
+    except AppError as exc:
+        if exc.code == "not_found":
+            raise AppError("unauthorized", "로그인이 필요합니다.", 401) from exc
+        raise
     if supplier.use_status != "사용":
         raise AppError("supplier_stopped", "사용 중지된 협력사입니다.", 403)
     return supplier

@@ -102,6 +102,35 @@ def test_reset_clears_password_and_old_session(auth_env, supplier_client: TestCl
     assert again.status_code == 200
 
 
+def test_deleted_supplier_token_is_rejected(auth_env, supplier_client: TestClient) -> None:
+    from sqlalchemy import select
+
+    from app.models.supplier import Supplier, SupplierAccount
+    from app.routers.suppliers import db_session as dependency
+
+    assert supplier_client.post("/suppliers", json={"code": "V-0099", "name": "삭제대상"}).status_code == 201
+    issued = supplier_client.post("/auth/supplier/password", json={"code": "V-0099", "password": "password1"})
+    token = issued.json()["access_token"]
+    headers = {"Authorization": "Bearer " + token}
+    assert supplier_client.get("/auth/supplier/session", headers=headers).status_code == 200
+
+    db_gen = supplier_client.app.dependency_overrides[dependency]()
+    db = next(db_gen)
+    try:
+        row = db.scalar(select(Supplier).where(Supplier.code == "V-0099"))
+        account = db.scalar(select(SupplierAccount).where(SupplierAccount.supplier_id == row.id))
+        if account is not None:
+            db.delete(account)
+        db.delete(row)
+        db.commit()
+    finally:
+        db_gen.close()
+
+    assert supplier_client.get("/auth/supplier/session", headers=headers).status_code == 401
+    assert supplier_client.get("/orders", headers=headers).status_code == 401
+    assert supplier_client.post("/auth/supplier/login", json={"code": "V-0099", "password": "password1"}).status_code == 401
+
+
 def test_supplier_token_cannot_reset_password(auth_env, supplier_client: TestClient) -> None:
     assert supplier_client.post("/suppliers", json={"code": "V-0002", "name": "새협력사"}).status_code == 201
     issued = supplier_client.post("/auth/supplier/password", json={"code": "V-0002", "password": "password1"})
