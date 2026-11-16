@@ -128,7 +128,10 @@ def test_deleted_supplier_token_is_rejected(auth_env, supplier_client: TestClien
 
     assert supplier_client.get("/auth/supplier/session", headers=headers).status_code == 401
     assert supplier_client.get("/orders", headers=headers).status_code == 401
-    assert supplier_client.post("/auth/supplier/login", json={"code": "V-0099", "password": "password1"}).status_code == 401
+    missing = supplier_client.post("/auth/supplier/login", json={"code": "V-0099", "password": "password1"})
+    assert missing.status_code == 401
+    assert missing.json()["code"] == "supplier_not_registered"
+    assert "업체등록" in missing.json()["message"]
 
 
 def test_supplier_token_cannot_reset_password(auth_env, supplier_client: TestClient) -> None:

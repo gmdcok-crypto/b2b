@@ -157,7 +157,17 @@ html.boot .app { visibility: hidden; }
   color: var(--stop);
   font-size: 12px;
 }
-.login-card .btn { margin: 8px 14px 14px; }
+.login-card .btn { margin: 8px 14px 0; }
+.login-help {
+  margin: 10px 14px 14px;
+  padding: 10px 10px 8px;
+  border-top: 1px solid var(--line);
+  color: #4a5d6e;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.login-help p { margin: 0 0 6px; }
+.login-help p:last-child { margin-bottom: 0; }
 .sep { width: 1px; height: 12px; background: rgba(255, 255, 255, 0.22); }
 
 .body { flex: 1; min-height: 0; display: flex; }

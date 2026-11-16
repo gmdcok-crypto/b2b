@@ -313,6 +313,15 @@
     if (loginTitle) loginTitle.textContent = "(주)지에스테크 협력사 포털";
     const userLabel = document.querySelector("#login-user-label span");
     if (userLabel) userLabel.textContent = "협력사코드";
+    const help = $("login-help");
+    if (help) {
+      help.replaceChildren(
+        el("p", {}, "1. 구매사에 등록된 협력사코드와 비밀번호로 로그인합니다."),
+        el("p", {}, "2. 처음 로그인하면 비밀번호를 8자 이상으로 설정합니다."),
+        el("p", {}, "3. 협력사코드가 없거나 로그인이 안 되면 구매사에 문의하세요."),
+        el("p", {}, "4. 비밀번호를 잊으면 구매사에 초기화를 요청하세요.")
+      );
+    }
   }
 
   function renderCriteria() {
@@ -1949,10 +1958,19 @@
   }
 
   function supplierLogin(code, password) {
+    const trimmed = String(code || "").trim();
+    if (!trimmed) {
+      toast("협력사코드를 입력하세요.");
+      return;
+    }
+    if (!String(password || "")) {
+      toast("비밀번호를 입력하세요.");
+      return;
+    }
     fetch(apiBase() + "/auth/supplier/login", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ code: code, password: password })
+      body: JSON.stringify({ code: trimmed, password: password })
     })
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
@@ -1964,7 +1982,7 @@
           return;
         }
         if (!response.ok) {
-          toast(payload.message || "로그인하지 못했습니다.");
+          toast(supplierAuthMessage(payload, "로그인하지 못했습니다."));
           return;
         }
         sessionStorage.setItem("scm.accessToken", payload.access_token);
@@ -1974,6 +1992,11 @@
   }
 
   function setSupplierPassword(code, password, confirm) {
+    const trimmed = String(code || "").trim();
+    if (!trimmed) {
+      toast("협력사코드를 입력하세요.");
+      return;
+    }
     if (password.length < 8) {
       toast("비밀번호는 8자 이상으로 입력하세요.");
       return;
@@ -1985,12 +2008,12 @@
     fetch(apiBase() + "/auth/supplier/password", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ code: code, password: password })
+      body: JSON.stringify({ code: trimmed, password: password })
     })
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
-          toast(payload.message || "비밀번호를 설정하지 못했습니다.");
+          toast(supplierAuthMessage(payload, "비밀번호를 설정하지 못했습니다."));
           return;
         }
         setSupplierSetup(false);
@@ -1999,6 +2022,22 @@
         toast("비밀번호를 설정했습니다.");
       })
       .catch(() => toast("인증 서버에 연결하지 못했습니다."));
+  }
+
+  function supplierAuthMessage(payload, fallback) {
+    if (payload && payload.code === "supplier_not_registered") {
+      return "업체등록이 되어 있지 않습니다. 구매사에 문의하세요.";
+    }
+    if (payload && payload.code === "supplier_stopped") {
+      return "사용 중지된 협력사입니다. 구매사에 문의하세요.";
+    }
+    if (payload && payload.code === "auth_not_configured") {
+      return "인증 설정이 없습니다. 관리자에게 문의하세요.";
+    }
+    if (payload && payload.code === "unauthorized") {
+      return payload.message || "비밀번호가 올바르지 않습니다.";
+    }
+    return (payload && payload.message) || fallback;
   }
 
   function countText(count) { return count + "건을 조회했습니다."; }

@@ -52,18 +52,18 @@ class SupplierLoginRequest(BaseModel):
 
 @router.post("/auth/supplier/login")
 def supplier_login(body: SupplierLoginRequest, db: Session = Depends(db_session)) -> dict[str, str | int]:
-    supplier = usable_supplier(db, body.code)
+    supplier = usable_supplier(db, body.code, for_login=True)
     account = supplier_account(db, supplier)
     if account is None or not account.password_hash or account.password_set_at is None:
         raise AppError("password_unset", "비밀번호를 설정하세요.", 409)
     if not verify_password(body.password.strip(), account.password_hash):
-        raise AppError("unauthorized", "협력사코드 또는 비밀번호가 올바르지 않습니다.", 401)
+        raise AppError("unauthorized", "비밀번호가 올바르지 않습니다.", 401)
     return supplier_token(supplier, account)
 
 
 @router.post("/auth/supplier/password")
 def supplier_password(body: SupplierLoginRequest, db: Session = Depends(db_session)) -> dict[str, str | int]:
-    supplier = usable_supplier(db, body.code)
+    supplier = usable_supplier(db, body.code, for_login=True)
     password = body.password.strip()
     if len(password) < MIN_PASSWORD:
         raise AppError("invalid_password", "비밀번호는 8자 이상으로 입력하세요.")
@@ -101,15 +101,21 @@ def me(authorization: str | None = Header(default=None)) -> dict[str, str]:
     return read_token(get_settings(), authorization)
 
 
-def usable_supplier(db: Session, code: str) -> Supplier:
+def usable_supplier(db: Session, code: str, *, for_login: bool = False) -> Supplier:
     try:
         supplier = find_supplier(db, code)
     except AppError as exc:
-        if exc.code == "not_found":
+        if exc.code in ("not_found", "invalid_code"):
+            if for_login:
+                raise AppError(
+                    "supplier_not_registered",
+                    "업체등록이 되어 있지 않습니다. 구매사에 문의하세요.",
+                    401,
+                ) from exc
             raise AppError("unauthorized", "로그인이 필요합니다.", 401) from exc
         raise
     if supplier.use_status != "사용":
-        raise AppError("supplier_stopped", "사용 중지된 협력사입니다.", 403)
+        raise AppError("supplier_stopped", "사용 중지된 협력사입니다. 구매사에 문의하세요.", 403)
     return supplier
 
 
