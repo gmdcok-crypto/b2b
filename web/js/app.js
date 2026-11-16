@@ -310,7 +310,7 @@
     const vendorNav = document.querySelector('[data-module="vendors"] span');
     if (vendorNav) vendorNav.textContent = "회사정보";
     const loginTitle = document.querySelector("#login h1");
-    if (loginTitle) loginTitle.textContent = "협력사 포털";
+    if (loginTitle) loginTitle.textContent = "(주)지에스테크 협력사 포털";
     const userLabel = document.querySelector("#login-user-label span");
     if (userLabel) userLabel.textContent = "협력사코드";
   }
