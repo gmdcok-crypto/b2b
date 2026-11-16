@@ -1825,11 +1825,19 @@
       })
       .catch(() => ({ configured: false }))
       .then((body) => {
-        if (body && body.configured) startAuth();
-        else {
-          loadSuppliers();
-          finishBoot();
+        if (body && body.configured) {
+          startAuth();
+          return;
         }
+        sessionStorage.removeItem("scm.accessToken");
+        if (supplier) {
+          state.supplierCode = "";
+          showLogin();
+          toast("인증 설정이 없습니다. 관리자에게 문의하세요.");
+          return;
+        }
+        loadSuppliers();
+        finishBoot();
       });
   }
 
