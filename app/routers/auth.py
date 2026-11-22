@@ -52,6 +52,7 @@ class SupplierLoginRequest(BaseModel):
 
 @router.post("/auth/supplier/login")
 def supplier_login(body: SupplierLoginRequest, db: Session = Depends(db_session)) -> dict[str, str | int]:
+    require_auth_configured()
     supplier = usable_supplier(db, body.code, for_login=True)
     account = supplier_account(db, supplier)
     if account is None or not account.password_hash or account.password_set_at is None:
@@ -63,6 +64,7 @@ def supplier_login(body: SupplierLoginRequest, db: Session = Depends(db_session)
 
 @router.post("/auth/supplier/password")
 def supplier_password(body: SupplierLoginRequest, db: Session = Depends(db_session)) -> dict[str, str | int]:
+    require_auth_configured()
     supplier = usable_supplier(db, body.code, for_login=True)
     password = body.password.strip()
     if len(password) < MIN_PASSWORD:
@@ -99,6 +101,11 @@ def supplier_session(
 @router.get("/auth/me")
 def me(authorization: str | None = Header(default=None)) -> dict[str, str]:
     return read_token(get_settings(), authorization)
+
+
+def require_auth_configured() -> None:
+    if not get_settings().auth_ready():
+        raise AppError("auth_not_configured", "인증 설정이 없습니다.", 503)
 
 
 def usable_supplier(db: Session, code: str, *, for_login: bool = False) -> Supplier:

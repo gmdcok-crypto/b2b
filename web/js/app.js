@@ -32,6 +32,7 @@
   });
 
   if (supplier) applySupplierShell();
+  else applyBuyerShell();
   openModule("orders");
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
   checkApi();
@@ -293,6 +294,27 @@
     return record;
   }
 
+  function applyBuyerShell() {
+    document.title = "구매 포털";
+    document.documentElement.dataset.portal = "buyer";
+    const brand = document.querySelector(".brand-text strong");
+    if (brand) brand.textContent = "구매 포털";
+    const company = document.querySelector(".session strong");
+    if (company) company.textContent = "(주)지에스테크";
+    const loginTitle = document.querySelector("#login h1");
+    if (loginTitle) loginTitle.textContent = "(주)지에스테크 구매 포털";
+    const userLabel = document.querySelector("#login-user-label span");
+    if (userLabel) userLabel.textContent = "아이디";
+    const help = $("login-help");
+    if (help) {
+      help.replaceChildren(
+        el("p", {}, "1. 구매사 아이디와 비밀번호로 로그인합니다."),
+        el("p", {}, "2. 아이디·비밀번호는 서버에 설정된 구매사 계정입니다."),
+        el("p", {}, "3. 로그인이 안 되면 관리자에게 문의하세요.")
+      );
+    }
+  }
+
   function applySupplierShell() {
     TITLES.vendors = "회사정보";
     document.title = "협력사 포털";
@@ -316,9 +338,9 @@
     const help = $("login-help");
     if (help) {
       help.replaceChildren(
-        el("p", {}, "1. 구매사에 등록된 협력사코드와 비밀번호로 로그인합니다."),
-        el("p", {}, "2. 처음 로그인하면 비밀번호를 8자 이상으로 설정합니다."),
-        el("p", {}, "3. 협력사코드가 없거나 로그인이 안 되면 구매사에 문의하세요."),
+        el("p", {}, "1. 구매사에 등록된 협력사코드를 입력하고 로그인합니다."),
+        el("p", {}, "2. 처음이거나 초기화 직후면 비밀번호를 8자 이상으로 두 번 입력해 설정합니다."),
+        el("p", {}, "3. 이미 설정한 뒤에는 같은 비밀번호로 로그인합니다."),
         el("p", {}, "4. 비밀번호를 잊으면 구매사에 초기화를 요청하세요.")
       );
     }
@@ -1922,7 +1944,13 @@
     const submit = $("login-submit");
     if (submit) submit.textContent = on ? "비밀번호 설정" : "로그인";
     const password = document.querySelector('#login-form input[name="password"]');
-    if (password) password.autocomplete = on ? "new-password" : "current-password";
+    if (password) {
+      password.autocomplete = on ? "new-password" : "current-password";
+      // 최초/초기화 직후에는 빈 비밀번호로도 설정 안내를 받을 수 있게 한다.
+      password.required = !!on;
+    }
+    const confirmInput = document.querySelector('#login-form input[name="confirm"]');
+    if (confirmInput) confirmInput.required = !!on;
   }
 
   function submitLogin(event) {
@@ -1936,16 +1964,24 @@
       else supplierLogin(username, password);
       return;
     }
+    if (!String(username || "").trim()) {
+      toast("아이디를 입력하세요.");
+      return;
+    }
+    if (!String(password || "")) {
+      toast("비밀번호를 입력하세요.");
+      return;
+    }
     fetch(apiBase() + "/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ username: username, password: password })
+      body: JSON.stringify({ username: username.trim(), password: password })
     })
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           if (error) error.textContent = "";
-          toast(payload.message || "로그인하지 못했습니다.");
+          toast(buyerAuthMessage(payload, "로그인하지 못했습니다."));
           return;
         }
         sessionStorage.setItem("scm.accessToken", payload.access_token);
@@ -1957,28 +1993,31 @@
       });
   }
 
+  function buyerAuthMessage(payload, fallback) {
+    if (payload && payload.code === "auth_not_configured") {
+      return "인증 설정이 없습니다. 관리자에게 문의하세요.";
+    }
+    if (payload && payload.code === "unauthorized") {
+      return "아이디 또는 비밀번호가 올바르지 않습니다.";
+    }
+    return (payload && payload.message) || fallback;
+  }
+
   function supplierLogin(code, password) {
     const trimmed = String(code || "").trim();
     if (!trimmed) {
       toast("협력사코드를 입력하세요.");
       return;
     }
-    if (!String(password || "")) {
-      toast("비밀번호를 입력하세요.");
-      return;
-    }
     fetch(apiBase() + "/auth/supplier/login", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ code: trimmed, password: password })
+      body: JSON.stringify({ code: trimmed, password: password || "" })
     })
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (response.status === 409 && payload.code === "password_unset") {
-          setSupplierSetup(true);
-          toast("비밀번호를 설정하세요. 8자 이상으로 입력한 뒤 한 번 더 확인합니다.");
-          const confirm = document.querySelector('#login-form input[name="confirm"]');
-          if (confirm) confirm.focus();
+          beginSupplierPasswordSetup();
           return;
         }
         if (!response.ok) {
@@ -1989,6 +2028,16 @@
         enterSession(payload);
       })
       .catch(() => toast("인증 서버에 연결하지 못했습니다."));
+  }
+
+  function beginSupplierPasswordSetup() {
+    setSupplierSetup(true);
+    const password = document.querySelector('#login-form input[name="password"]');
+    const confirm = document.querySelector('#login-form input[name="confirm"]');
+    if (password) password.value = "";
+    if (confirm) confirm.value = "";
+    toast("비밀번호를 설정하세요. 8자 이상으로 입력한 뒤 한 번 더 확인합니다.");
+    if (password) password.focus();
   }
 
   function setSupplierPassword(code, password, confirm) {
@@ -2002,7 +2051,7 @@
       return;
     }
     if (password !== confirm) {
-      toast("비밀번호가 서로 다릅니다.");
+      toast("비밀번호 확인이 서로 다릅니다. 같은 비밀번호를 두 칸에 입력하세요.");
       return;
     }
     fetch(apiBase() + "/auth/supplier/password", {
@@ -2013,6 +2062,11 @@
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
+          if (payload.code === "password_already_set") {
+            setSupplierSetup(false);
+            toast("이미 비밀번호가 설정되어 있습니다. 설정한 비밀번호로 다시 로그인하세요.");
+            return;
+          }
           toast(supplierAuthMessage(payload, "비밀번호를 설정하지 못했습니다."));
           return;
         }
@@ -2032,7 +2086,10 @@
       return "사용 중지된 협력사입니다. 구매사에 문의하세요.";
     }
     if (payload && payload.code === "auth_not_configured") {
-      return "인증 설정이 없습니다. 관리자에게 문의하세요.";
+      return "인증 설정이 없습니다. Railway에 JWT_SECRET, AUTH_USERNAME, AUTH_PASSWORD를 넣으세요.";
+    }
+    if (payload && payload.code === "password_already_set") {
+      return "이미 비밀번호가 설정되어 있습니다. 설정한 비밀번호로 로그인하세요.";
     }
     if (payload && payload.code === "unauthorized") {
       return payload.message || "비밀번호가 올바르지 않습니다.";

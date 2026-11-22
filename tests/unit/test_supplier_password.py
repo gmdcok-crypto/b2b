@@ -102,6 +102,21 @@ def test_reset_clears_password_and_old_session(auth_env, supplier_client: TestCl
     assert again.status_code == 200
 
 
+def test_password_set_requires_auth_configuration(monkeypatch: pytest.MonkeyPatch, supplier_client: TestClient) -> None:
+    assert supplier_client.post("/suppliers", json={"code": "V-0003", "name": "설정대기"}).status_code == 201
+    monkeypatch.setenv("JWT_SECRET", "")
+    monkeypatch.setenv("AUTH_USERNAME", "")
+    monkeypatch.setenv("AUTH_PASSWORD", "")
+    get_settings.cache_clear()
+    denied = supplier_client.post("/auth/supplier/password", json={"code": "V-0003", "password": "password1"})
+    assert denied.status_code == 503
+    assert denied.json()["code"] == "auth_not_configured"
+    listed = supplier_client.get("/suppliers").json()
+    target = next(row for row in listed if row["code"] == "V-0003")
+    assert target["auth"] == "미인증"
+    get_settings.cache_clear()
+
+
 def test_deleted_supplier_token_is_rejected(auth_env, supplier_client: TestClient) -> None:
     from sqlalchemy import select
 
