@@ -87,8 +87,18 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
     assert price.json()["record"]["history"][0]["type"] == "등록"
     price_id = price.json()["record"]["id"]
 
-    requested = trade_client.post("/prices/" + price_id + "/request", json={"request": 5000})
+    requested = trade_client.post(
+        "/prices/" + price_id + "/request",
+        data={"request": "5000"},
+        files={"file": ("공문.pdf", b"%PDF-1.4 test document", "application/pdf")},
+    )
+    assert requested.status_code == 200
     assert requested.json()["record"]["status"] == "승인대기"
+    assert requested.json()["record"]["attachment"]["name"] == "공문.pdf"
+    attachment_id = requested.json()["record"]["attachment"]["id"]
+    downloaded = trade_client.get("/prices/" + price_id + "/attachments/" + str(attachment_id))
+    assert downloaded.status_code == 200
+    assert downloaded.content.startswith(b"%PDF-1.4")
     approved = trade_client.post("/prices/" + price_id + "/decide", json={"type": "승인"})
     assert approved.json()["record"]["price"] == 5000
     assert approved.json()["record"]["status"] == "적용중"

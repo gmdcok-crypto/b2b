@@ -395,7 +395,8 @@
         el("p", {}, "1. 구매사에 등록된 협력사코드를 입력하고 로그인합니다."),
         el("p", {}, "2. 처음이거나 초기화 직후면 비밀번호를 8자 이상으로 두 번 입력해 설정합니다."),
         el("p", {}, "3. 이미 설정한 뒤에는 같은 비밀번호로 로그인합니다."),
-        el("p", {}, "4. 비밀번호를 잊으면 구매사에 초기화를 요청하세요.")
+        el("p", {}, "4. 단가 변경요청 시 공문 파일을 반드시 첨부합니다."),
+        el("p", {}, "5. 비밀번호를 잊으면 구매사에 초기화를 요청하세요.")
       );
     }
   }
@@ -518,19 +519,32 @@
       row.forEach((field) => {
         form.append(el("div", { class: "lab" }, field.label));
         const editable = field.edit && canEdit(record);
-        const wrap = el("div", { class: "val" + (field.span ? " span" : "") + (editable ? " edit" : "") });
-        const input = field.options && editable
-          ? fieldSelect(record, field)
-          : el("input", fieldInputAttrs(record, field, editable));
-        if (editable && !field.options) {
-          if (field.biz) bindBizNoInput(input, record);
-          input.addEventListener("input", () => {
-            if (field.biz) applyBizNoInput(input, record);
-            else record[field.key] = input.value;
-            syncListRow(record);
-            paintTab();
-            renderStatus();
+        const wrap = el("div", { class: "val" + (field.span ? " span" : "") + (editable || field.file || field.attachment ? " edit" : "") });
+        let input;
+        if (field.file) {
+          input = el("input", {
+            type: "file",
+            accept: ".pdf,.png,.jpg,.jpeg,.gif,.webp,.doc,.docx,.hwp,application/pdf,image/*"
           });
+          input.addEventListener("change", () => {
+            record._file = input.files && input.files[0] ? input.files[0] : null;
+          });
+        } else if (field.attachment) {
+          input = attachmentLink(record);
+        } else if (field.options && editable) {
+          input = fieldSelect(record, field);
+        } else {
+          input = el("input", fieldInputAttrs(record, field, editable));
+          if (editable) {
+            if (field.biz) bindBizNoInput(input, record);
+            input.addEventListener("input", () => {
+              if (field.biz) applyBizNoInput(input, record);
+              else record[field.key] = input.value;
+              syncListRow(record);
+              paintTab();
+              renderStatus();
+            });
+          }
         }
         wrap.append(input);
         form.append(wrap);
@@ -729,6 +743,7 @@
         { label: "이전단가", width: "100px", align: "num", render: (row) => row.before === "" ? "" : money(row.before) },
         { label: "변경단가", width: "100px", align: "num", render: (row) => money(row.after) },
         { label: "처리자", width: "120px", render: (row) => row.by },
+        { label: "공문", width: "140px", render: (row) => historyAttachmentNode(record, row) },
         { label: "내용", render: (row) => row.note }
       ];
     }
@@ -787,7 +802,15 @@
         [{ label: "계약단가", key: "price", edit: drafting, money: true, span: true }],
         [{ label: "비고", key: "note", edit: drafting, span: true }]
       ];
-      if (!drafting) rows.push([{ label: "요청단가", key: "request", edit: record.status === "적용중", money: true, span: true }]);
+      if (!drafting) {
+        rows.push([{ label: "요청단가", key: "request", edit: record.status === "적용중", money: true, span: true }]);
+        if (record.status === "적용중") {
+          rows.push([{ label: "공문첨부", key: "file", file: true, edit: true, span: true }]);
+        }
+        if (record.attachment && record.attachment.name) {
+          rows.push([{ label: "첨부공문", key: "attachment", attachment: true, span: true }]);
+        }
+      }
       return rows;
     }
     if (state.module === "vendors") {
@@ -1449,18 +1472,69 @@
       toast("현재단가와 다른 요청단가를 입력하세요.");
       return;
     }
+    if (!price._file) {
+      toast("변경요청 공문을 첨부하세요.");
+      return;
+    }
+    const body = new FormData();
+    body.append("request", String(next));
+    body.append("file", price._file, price._file.name);
+    const headers = authHeaders(false);
     fetch(apiBase() + "/prices/" + encodeURIComponent(price.id) + "/request", {
       method: "POST",
-      headers: authHeaders(true),
-      body: JSON.stringify({ request: next })
+      headers: headers,
+      body: body
     })
       .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.message || "변경 요청을 저장하지 못했습니다.");
-        applySaved(price, body);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.message || "변경 요청을 저장하지 못했습니다.");
+        delete price._file;
+        applySaved(price, payload);
         toast("변경 요청을 승인 대기로 저장했습니다.");
       })
       .catch((error) => toast(error.message || "변경 요청을 저장하지 못했습니다."));
+  }
+
+  function attachmentLink(record) {
+    const file = record.attachment;
+    if (!file || !file.name) return el("span", {}, "—");
+    return el("button", {
+      type: "button",
+      class: "link-btn",
+      onclick: () => downloadPriceAttachment(record, file)
+    }, file.name);
+  }
+
+  function historyAttachmentNode(price, row) {
+    const file = row.attachment;
+    if (!file || !file.name) return "—";
+    return el("button", {
+      type: "button",
+      class: "link-btn",
+      onclick: () => downloadPriceAttachment(price, file)
+    }, file.name);
+  }
+
+  function downloadPriceAttachment(price, file) {
+    fetch(apiBase() + "/prices/" + encodeURIComponent(price.id) + "/attachments/" + encodeURIComponent(file.id), {
+      headers: authHeaders(false)
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.message || "첨부 파일을 받지 못했습니다.");
+        }
+        return response.blob().then((blob) => ({ blob: blob, name: file.name }));
+      })
+      .then(({ blob, name }) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = name;
+        link.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch((error) => toast(error.message || "첨부 파일을 받지 못했습니다."));
   }
 
   function decidePrice(type) {

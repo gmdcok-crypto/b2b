@@ -3,17 +3,19 @@
 import re
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, File, Form, Header, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.core.tokens import require_buyer
-from app.models.catalog import AuditLog, Item, Order, OrderLine, Price, PriceHistory
+from app.models.catalog import AuditLog, Item, Order, OrderLine, Price, PriceAttachment, PriceHistory
 from app.models.supplier import Supplier
 from app.routers.suppliers import db_session, find_supplier
 from app.services.audit import actor_name, add_audit, audit_public, caller, money_text
+from app.services.uploads import attachment_path, save_price_attachment
 
 router = APIRouter(tags=["trade"])
 CODE_PATTERN = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)*$")
@@ -37,10 +39,6 @@ class PriceBody(BaseModel):
     starts: str = Field(default="", validation_alias="from")
     to: str = ""
     note: str = ""
-
-
-class PriceRequestBody(BaseModel):
-    request: int = 0
 
 
 class PriceDecideBody(BaseModel):
@@ -166,22 +164,46 @@ def item_public(row: Item) -> dict[str, str]:
     }
 
 
-def history_public(rows: list[PriceHistory]) -> list[dict[str, str | int]]:
+def attachment_public(row: PriceAttachment | None) -> dict[str, str | int] | None:
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "name": row.original_name,
+        "size": row.size_bytes,
+        "by": row.uploaded_by,
+    }
+
+
+def history_public(rows: list[PriceHistory], attachments: dict[int, PriceAttachment] | None = None) -> list[dict]:
+    linked = attachments or {}
     ordered = sorted(rows, key=lambda row: row.id, reverse=True)
-    return [
-        {
-            "date": row.entry_date.isoformat(),
-            "type": row.entry_type,
-            "before": "" if row.before_amount is None else row.before_amount,
-            "after": "" if row.after_amount is None else row.after_amount,
-            "by": row.actor,
-            "note": row.note or "",
-        }
-        for row in ordered
-    ]
+    result = []
+    for row in ordered:
+        file = linked.get(row.id)
+        result.append(
+            {
+                "date": row.entry_date.isoformat(),
+                "type": row.entry_type,
+                "before": "" if row.before_amount is None else row.before_amount,
+                "after": "" if row.after_amount is None else row.after_amount,
+                "by": row.actor,
+                "note": row.note or "",
+                "attachment": attachment_public(file),
+            }
+        )
+    return result
 
 
-def price_public(row: Price, item: Item, supplier: Supplier, histories: list[PriceHistory]) -> dict:
+def price_public(
+    row: Price,
+    item: Item,
+    supplier: Supplier,
+    histories: list[PriceHistory],
+    *,
+    attachment: PriceAttachment | None = None,
+    history_attachments: dict[int, PriceAttachment] | None = None,
+) -> dict:
     return {
         "id": row.doc_no,
         "code": item.code,
@@ -195,7 +217,8 @@ def price_public(row: Price, item: Item, supplier: Supplier, histories: list[Pri
         "to": "" if row.valid_to is None else row.valid_to.isoformat(),
         "note": row.note or "",
         "status": row.status,
-        "history": history_public(histories),
+        "attachment": attachment_public(attachment),
+        "history": history_public(histories, history_attachments),
     }
 
 
@@ -248,6 +271,31 @@ def histories_for(db: Session, price_ids: list[int]) -> dict[int, list[PriceHist
     for row in rows:
         grouped.setdefault(row.price_id, []).append(row)
     return grouped
+
+
+def attachments_for(db: Session, price_ids: list[int]) -> dict[int, list[PriceAttachment]]:
+    grouped: dict[int, list[PriceAttachment]] = {price_id: [] for price_id in price_ids}
+    if not price_ids:
+        return grouped
+    rows = db.scalars(select(PriceAttachment).where(PriceAttachment.price_id.in_(price_ids))).all()
+    for row in rows:
+        grouped.setdefault(row.price_id, []).append(row)
+    return grouped
+
+
+def latest_request_attachment(rows: list[PriceAttachment]) -> PriceAttachment | None:
+    linked = [row for row in rows if row.history_id is not None]
+    if not linked:
+        return None
+    return max(linked, key=lambda row: row.id)
+
+
+def history_attachment_map(rows: list[PriceAttachment]) -> dict[int, PriceAttachment]:
+    mapped: dict[int, PriceAttachment] = {}
+    for row in rows:
+        if row.history_id is not None:
+            mapped[row.history_id] = row
+    return mapped
 
 
 def traded_codes(db: Session, supplier: Supplier) -> set[str]:
@@ -364,18 +412,19 @@ def add_history(
     after: int | None,
     actor: str,
     note: str = "",
-) -> None:
-    db.add(
-        PriceHistory(
-            price_id=price.id,
-            entry_date=date.today(),
-            entry_type=entry_type,
-            before_amount=before,
-            after_amount=after,
-            actor=actor[:100],
-            note=note.strip()[:200],
-        )
+) -> PriceHistory:
+    row = PriceHistory(
+        price_id=price.id,
+        entry_date=date.today(),
+        entry_type=entry_type,
+        before_amount=before,
+        after_amount=after,
+        actor=actor[:100],
+        note=note.strip()[:200],
     )
+    db.add(row)
+    db.flush()
+    return row
 
 
 def published_order(db: Session, row: Order) -> dict:
@@ -388,7 +437,16 @@ def published_price(db: Session, row: Price) -> dict:
     item = item_map(db)[row.item_id]
     supplier = supplier_map(db)[row.supplier_id]
     histories = histories_for(db, [row.id]).get(row.id, [])
-    return price_public(row, item, supplier, histories)
+    files = attachments_for(db, [row.id]).get(row.id, [])
+    current = latest_request_attachment(files) if row.status == "승인대기" else None
+    return price_public(
+        row,
+        item,
+        supplier,
+        histories,
+        attachment=current,
+        history_attachments=history_attachment_map(files),
+    )
 
 
 @router.get("/items")
@@ -457,12 +515,26 @@ def list_prices(
         rows = [row for row in rows if row.supplier_id == scope.id]
     items = item_map(db)
     suppliers = supplier_map(db)
-    histories = histories_for(db, [row.id for row in rows])
-    return [
-        price_public(row, items[row.item_id], suppliers[row.supplier_id], histories.get(row.id, []))
-        for row in rows
-        if row.item_id in items and row.supplier_id in suppliers
-    ]
+    price_ids = [row.id for row in rows]
+    histories = histories_for(db, price_ids)
+    files = attachments_for(db, price_ids)
+    result = []
+    for row in rows:
+        if row.item_id not in items or row.supplier_id not in suppliers:
+            continue
+        attached = files.get(row.id, [])
+        current = latest_request_attachment(attached) if row.status == "승인대기" else None
+        result.append(
+            price_public(
+                row,
+                items[row.item_id],
+                suppliers[row.supplier_id],
+                histories.get(row.id, []),
+                attachment=current,
+                history_attachments=history_attachment_map(attached),
+            )
+        )
+    return result
 
 
 @router.post("/prices", status_code=201)
@@ -512,9 +584,10 @@ def create_price(
 
 
 @router.post("/prices/{doc_no}/request")
-def request_price(
+async def request_price(
     doc_no: str,
-    body: PriceRequestBody,
+    request: int = Form(...),
+    file: UploadFile = File(...),
     authorization: str | None = Header(default=None),
     db: Session = Depends(db_session),
 ) -> dict:
@@ -529,11 +602,31 @@ def request_price(
         user = require_trade_buyer(authorization)
     if row.status != "적용중":
         raise AppError("invalid_status", "적용 중인 단가만 변경 요청할 수 있습니다.")
-    if body.request <= 0 or body.request == row.amount:
+    if request <= 0 or request == row.amount:
         raise AppError("invalid_price", "현재단가와 다른 요청단가를 입력하세요.")
-    row.request_amount = int(body.request)
+    original, stored, content_type, size_bytes = await save_price_attachment(file)
+    row.request_amount = int(request)
     row.status = "승인대기"
-    add_history(db, row, entry_type="변경요청", before=row.amount, after=row.request_amount, actor=user)
+    history = add_history(
+        db,
+        row,
+        entry_type="변경요청",
+        before=row.amount,
+        after=row.request_amount,
+        actor=user,
+        note="공문 " + original,
+    )
+    db.add(
+        PriceAttachment(
+            price_id=row.id,
+            history_id=history.id,
+            original_name=original,
+            stored_name=stored,
+            content_type=content_type,
+            size_bytes=size_bytes,
+            uploaded_by=user[:100],
+        )
+    )
     audit = add_audit(
         db,
         user=user,
@@ -541,11 +634,41 @@ def request_price(
         target=item_map(db)[row.item_id].code,
         before=money_text(row.amount),
         after=money_text(row.request_amount),
+        note=original,
     )
     db.commit()
     db.refresh(row)
     db.refresh(audit)
     return envelope(published_price(db, row), audit)
+
+
+@router.get("/prices/{doc_no}/attachments/{attachment_id}")
+def download_price_attachment(
+    doc_no: str,
+    attachment_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(db_session),
+) -> FileResponse:
+    scope = scoped_supplier(db, authorization)
+    row = find_price(db, doc_no)
+    if scope is not None and row.supplier_id != scope.id:
+        raise AppError("forbidden", "자사 단가 첨부만 받을 수 있습니다.", 403)
+    if scope is None:
+        require_buyer(authorization)
+    attachment = db.scalar(
+        select(PriceAttachment).where(
+            PriceAttachment.id == attachment_id,
+            PriceAttachment.price_id == row.id,
+        )
+    )
+    if attachment is None:
+        raise AppError("not_found", "첨부 파일을 찾을 수 없습니다.", 404)
+    path = attachment_path(attachment.stored_name)
+    return FileResponse(
+        path,
+        media_type=attachment.content_type or "application/octet-stream",
+        filename=attachment.original_name,
+    )
 
 
 @router.post("/prices/{doc_no}/decide")

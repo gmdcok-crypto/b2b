@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     auth_username: str = ""
     auth_password: str = ""
     auth_display_name: str = ""
+    upload_dir: str = ""
 
     def auth_ready(self) -> bool:
         return bool(self.jwt_secret.strip() and len(self.jwt_secret.strip()) >= 32 and self.auth_username.strip() and self.auth_password)

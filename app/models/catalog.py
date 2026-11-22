@@ -60,6 +60,22 @@ class PriceHistory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class PriceAttachment(Base):
+    """단가 변경요청 공문 첨부."""
+
+    __tablename__ = "price_attachments"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    price_id: Mapped[int] = mapped_column(ForeignKey("prices.id", ondelete="CASCADE"))
+    history_id: Mapped[int | None] = mapped_column(ForeignKey("price_histories.id", ondelete="SET NULL"))
+    original_name: Mapped[str] = mapped_column(String(200))
+    stored_name: Mapped[str] = mapped_column(String(240), unique=True)
+    content_type: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    uploaded_by: Mapped[str] = mapped_column(String(100), default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class Order(Base):
     __tablename__ = "orders"
     __table_args__ = (CheckConstraint("status IN ('작성', '확정', '취소')", name="ck_orders_status"),)

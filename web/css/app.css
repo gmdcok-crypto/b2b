@@ -268,6 +268,17 @@ html.boot .app { visibility: hidden; }
 .btn.danger { color: var(--stop); }
 .btn.danger:hover:not(:disabled) { background: #fbf6f6; }
 .btn:disabled { color: #8b9aab; background: #eef2f5; border-color: #d5dee4; }
+.link-btn {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--navy);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.link-btn:hover { color: #1a4466; }
 .sep-v { width: 1px; height: 16px; background: #c9d3dc; margin: 0 2px; }
 
 .criteria {
