@@ -33,6 +33,7 @@
 
   if (supplier) applySupplierShell();
   else applyBuyerShell();
+  setSupplierSetup(false);
   openModule("orders");
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
   checkApi();

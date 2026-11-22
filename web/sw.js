@@ -1,4 +1,4 @@
-const CACHE = "scm-shell-v9";
+const CACHE = "scm-shell-v10";
 const SHELL = ["/", "/css/app.css", "/js/app.js", "/config.js", "/manifest.webmanifest", "/manifest-supplier.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {

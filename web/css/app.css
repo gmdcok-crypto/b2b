@@ -124,6 +124,7 @@ html.boot .app { visibility: hidden; }
   color: #31485b;
   font-size: 12px;
 }
+.login-card label[hidden] { display: none !important; }
 .login-card input {
   height: 28px;
   border: 1px solid #b7c3ce;
