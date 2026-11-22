@@ -71,6 +71,11 @@
     state.message = "";
     state.sortKey = name === "orders" ? "date" : name === "audit" ? "at" : "code";
     state.sortDir = name === "prices" || name === "items" || name === "vendors" ? "asc" : "desc";
+    if (!supplier && name === "prices" && pendingPriceRequests() > 0) {
+      state.filters = { status: "승인대기" };
+    } else {
+      state.filters = {};
+    }
     document.querySelectorAll(".nav-item").forEach((button) => {
       button.classList.toggle("is-active", button.dataset.module === name);
     });
@@ -300,7 +305,32 @@
       renderWorkspace();
       renderCommand();
       renderStatus();
+      renderPendingSignals();
     });
+  }
+
+  function pendingPriceRequests() {
+    return data.prices.filter((row) => !row.draft && row.status === "승인대기").length;
+  }
+
+  function renderPendingSignals() {
+    const button = document.querySelector('.nav-item[data-module="prices"]');
+    if (!button) return;
+    let badge = button.querySelector(".nav-badge");
+    const count = supplier ? 0 : pendingPriceRequests();
+    if (count > 0) {
+      if (!badge) {
+        badge = el("span", { class: "nav-badge" });
+        button.append(badge);
+      }
+      badge.textContent = String(count);
+      badge.hidden = false;
+      badge.setAttribute("aria-label", "변경요청 " + count + "건");
+    } else if (badge) {
+      badge.hidden = true;
+      badge.textContent = "";
+      badge.removeAttribute("aria-label");
+    }
   }
 
   function applySaved(record, body) {
@@ -314,6 +344,7 @@
     paintDetail();
     renderCommand();
     renderStatus();
+    renderPendingSignals();
     return record;
   }
 
@@ -381,8 +412,9 @@
       fields.push(field("검색", searchInput("q", "문서번호, 품목")));
       box.append.apply(box, fields);
     } else if (state.module === "prices") {
+      const statusValue = state.filters.status || "전체";
       const fields = [
-        field("상태", select("status", supplier ? ["전체", "적용중", "승인대기", "종료"] : ["전체", "작성", "적용중", "승인대기", "종료"], "전체"))
+        field("상태", select("status", supplier ? ["전체", "적용중", "승인대기", "종료"] : ["전체", "작성", "적용중", "승인대기", "종료"], statusValue))
       ];
       if (!supplier) fields.push(field("협력사", textInput("vendor", "vendor", "")));
       fields.push(field("검색", searchInput("q", "품목코드, 품목명")));
@@ -1619,16 +1651,21 @@
   function renderStatus() {
     const rows = filtered();
     const record = selectedRecord();
+    const pending = supplier ? 0 : pendingPriceRequests();
     let left = rows.length + "건";
-    if (record && state.module === "orders") left += "  ·  " + record.id + "  ·  공급가액 " + money(orderAmount(record));
+    if (record && state.module === "orders") left += "  ·  " + (record.id || "신규") + "  ·  공급가액 " + money(orderAmount(record));
     else if (record && state.module === "prices") left += "  ·  " + record.code + "  ·  " + money(record.price);
     else if (record && state.module === "items") left += "  ·  " + (record.code || "신규");
     else if (record && state.module === "vendors") left += "  ·  " + (record.code || "신규") + "  ·  " + (record.name || "");
+    const message = pending > 0
+      ? "변경요청 " + pending + "건 · 단가에서 승인·반려하세요"
+      : state.message;
     $("statusbar").replaceChildren(
       el("span", {}, left),
-      el("span", { class: "msg" }, state.message),
+      el("span", { class: "msg" + (pending > 0 ? " is-alert" : "") }, message),
       el("span", { class: "hint" }, state.api + "  ·  ↑↓ 행 이동")
     );
+    renderPendingSignals();
   }
 
   function printCurrent() {
