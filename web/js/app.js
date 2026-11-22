@@ -219,10 +219,32 @@
     return rows.length === 1 ? rows[0] : { code: "", name: "", contact: "" };
   }
 
+  function readAccessToken() {
+    const local = window.localStorage.getItem("scm.accessToken");
+    if (local) return local;
+    const session = window.sessionStorage.getItem("scm.accessToken");
+    if (session) {
+      window.localStorage.setItem("scm.accessToken", session);
+      window.sessionStorage.removeItem("scm.accessToken");
+      return session;
+    }
+    return "";
+  }
+
+  function writeAccessToken(token) {
+    window.localStorage.setItem("scm.accessToken", token);
+    window.sessionStorage.removeItem("scm.accessToken");
+  }
+
+  function clearAccessToken() {
+    window.localStorage.removeItem("scm.accessToken");
+    window.sessionStorage.removeItem("scm.accessToken");
+  }
+
   function authHeaders(json) {
     const headers = { Accept: "application/json" };
     if (json) headers["Content-Type"] = "application/json";
-    const token = sessionStorage.getItem("scm.accessToken");
+    const token = readAccessToken();
     if (token) headers.Authorization = "Bearer " + token;
     return headers;
   }
@@ -249,7 +271,7 @@
       fetchList("/suppliers"),
       fetchList("/audit")
     ]).then(([orders, prices, items, vendors, audit]) => {
-      if (supplier && !sessionStorage.getItem("scm.accessToken")) return;
+      if (supplier && !readAccessToken()) return;
       const drafts = {
         orders: data.orders.filter((row) => row.draft),
         prices: data.prices.filter((row) => row.draft),
@@ -1860,7 +1882,7 @@
           startAuth();
           return;
         }
-        sessionStorage.removeItem("scm.accessToken");
+        clearAccessToken();
         if (supplier) {
           state.supplierCode = "";
           showLogin();
@@ -1877,7 +1899,7 @@
   }
 
   function startAuth() {
-    const token = sessionStorage.getItem("scm.accessToken");
+    const token = readAccessToken();
     if (!token) {
       showLogin();
       return;
@@ -1893,7 +1915,7 @@
   }
 
   function forceLogout() {
-    sessionStorage.removeItem("scm.accessToken");
+    clearAccessToken();
     state.supplierCode = "";
     const button = $("logout");
     if (button) button.hidden = true;
@@ -1984,7 +2006,7 @@
           toast(buyerAuthMessage(payload, "로그인하지 못했습니다."));
           return;
         }
-        sessionStorage.setItem("scm.accessToken", payload.access_token);
+        writeAccessToken(payload.access_token);
         enterSession(payload);
       })
       .catch(() => {
@@ -2024,7 +2046,7 @@
           toast(supplierAuthMessage(payload, "로그인하지 못했습니다."));
           return;
         }
-        sessionStorage.setItem("scm.accessToken", payload.access_token);
+        writeAccessToken(payload.access_token);
         enterSession(payload);
       })
       .catch(() => toast("인증 서버에 연결하지 못했습니다."));
@@ -2071,7 +2093,7 @@
           return;
         }
         setSupplierSetup(false);
-        sessionStorage.setItem("scm.accessToken", payload.access_token);
+        writeAccessToken(payload.access_token);
         enterSession(payload);
         toast("비밀번호를 설정했습니다.");
       })
