@@ -41,9 +41,18 @@ def auth_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("AUTH_USERNAME", "buyer")
     monkeypatch.setenv("AUTH_PASSWORD", "secret-pass")
     monkeypatch.setenv("AUTH_DISPLAY_NAME", "김구매")
+    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "approver")
+    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "approve-pass")
+    monkeypatch.setenv("AUTH_APPROVER_DISPLAY_NAME", "이승인")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+def _login(client: TestClient, username: str, password: str) -> dict[str, str]:
+    response = client.post("/auth/login", json={"username": username, "password": password})
+    assert response.status_code == 200
+    return {"Authorization": "Bearer " + response.json()["access_token"]}
 
 
 def test_trade_lists_start_empty(trade_client: TestClient) -> None:
@@ -99,6 +108,8 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
     downloaded = trade_client.get("/prices/" + price_id + "/attachments/" + str(attachment_id))
     assert downloaded.status_code == 200
     assert downloaded.content.startswith(b"%PDF-1.4")
+    reviewed = trade_client.post("/prices/" + price_id + "/decide", json={"type": "검토"})
+    assert reviewed.json()["record"]["status"] == "검토완료"
     approved = trade_client.post("/prices/" + price_id + "/decide", json={"type": "승인"})
     assert approved.json()["record"]["price"] == 5000
     assert approved.json()["record"]["status"] == "적용중"
@@ -139,11 +150,9 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
 
 
 def test_supplier_sees_only_own_confirmed_order(auth_env, trade_client: TestClient) -> None:
-    buyer = trade_client.post("/auth/login", json={"username": "buyer", "password": "secret-pass"})
-    assert buyer.status_code == 200
-    buyer_headers = {"Authorization": "Bearer " + buyer.json()["access_token"]}
-    trade_client.post("/suppliers", json={"code": "V-0001", "name": "한빛금속"})
-    trade_client.post("/suppliers", json={"code": "V-0002", "name": "세진"})
+    buyer_headers = _login(trade_client, "buyer", "secret-pass")
+    trade_client.post("/suppliers", headers=buyer_headers, json={"code": "V-0001", "name": "한빛금속"})
+    trade_client.post("/suppliers", headers=buyer_headers, json={"code": "V-0002", "name": "세진"})
     created = trade_client.post(
         "/items",
         headers=buyer_headers,
@@ -172,3 +181,37 @@ def test_supplier_sees_only_own_confirmed_order(auth_env, trade_client: TestClie
     assert [row["id"] for row in again] == [doc]
     items = trade_client.get("/items", headers=headers).json()
     assert [row["code"] for row in items] == ["AL-1"]
+
+
+def test_price_review_and_approve_roles(auth_env, trade_client: TestClient) -> None:
+    buyer = _login(trade_client, "buyer", "secret-pass")
+    approver = _login(trade_client, "approver", "approve-pass")
+    trade_client.post("/suppliers", headers=buyer, json={"code": "V-0001", "name": "한빛금속"})
+    trade_client.post(
+        "/items",
+        headers=buyer,
+        json={"code": "AL-1", "name": "알루미늄", "unit": "M", "group": "원자재"},
+    )
+    price = trade_client.post(
+        "/prices",
+        headers=buyer,
+        json={"code": "AL-1", "vendor": "한빛금속", "price": 1000, "from": "2026-11-01"},
+    )
+    price_id = price.json()["record"]["id"]
+    trade_client.post(
+        "/prices/" + price_id + "/request",
+        headers=buyer,
+        data={"request": "1200"},
+        files={"file": ("공문.pdf", b"%PDF-1.4 x", "application/pdf")},
+    )
+    denied = trade_client.post("/prices/" + price_id + "/decide", headers=approver, json={"type": "승인"})
+    assert denied.status_code == 400
+    denied_review = trade_client.post("/prices/" + price_id + "/decide", headers=approver, json={"type": "검토"})
+    assert denied_review.status_code == 403
+    reviewed = trade_client.post("/prices/" + price_id + "/decide", headers=buyer, json={"type": "검토"})
+    assert reviewed.json()["record"]["status"] == "검토완료"
+    denied_staff = trade_client.post("/prices/" + price_id + "/decide", headers=buyer, json={"type": "승인"})
+    assert denied_staff.status_code == 403
+    approved = trade_client.post("/prices/" + price_id + "/decide", headers=approver, json={"type": "승인"})
+    assert approved.json()["record"]["status"] == "적용중"
+    assert approved.json()["record"]["price"] == 1200

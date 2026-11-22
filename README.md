@@ -19,7 +19,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 화면은 설치형 PWA다. `manifest.webmanifest`와 `sw.js`가 화면 껍데기를 보관한다. 발주·단가 같은 업무 데이터는 오프라인에서 수정하지 않는다.
 
-인증은 JWT 액세스 토큰이다. 구매사는 `JWT_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD`가 모두 있을 때 환경 변수 계정으로 로그인한다. 협력사는 협력사코드와 비밀번호로 로그인한다. 비밀번호가 없으면 로그인 화면에서 설정한다. 구매사가 비밀번호를 초기화하면 기존 로그인은 끊기고, 협력사가 다시 설정한다. 리프레시 토큰은 없다.
+인증은 JWT 액세스 토큰이다. 구매사는 `JWT_SECRET`과 담당·승인자 계정이 모두 있을 때 로그인한다. 담당은 `AUTH_USERNAME` / `AUTH_PASSWORD` / `AUTH_DISPLAY_NAME`, 승인자는 `AUTH_APPROVER_USERNAME` / `AUTH_APPROVER_PASSWORD` / `AUTH_APPROVER_DISPLAY_NAME`이다. 계정은 `buyer_accounts` 테이블에 시드되며 역할이 다르다. 담당은 단가 변경요청을 검토·반려하고, 승인자는 검토완료 건만 최종승인·반려한다. 협력사는 협력사코드와 비밀번호로 로그인한다. 비밀번호가 없으면 로그인 화면에서 설정한다. 구매사가 비밀번호를 초기화하면 기존 로그인은 끊기고, 협력사가 다시 설정한다. 리프레시 토큰은 없다.
 
 - `GET /health`는 데이터베이스를 조회하지 않는다.
 - `DATABASE_URL` 또는 `MYSQL_URL`이 있을 때만 DB 세션을 만든다.
@@ -66,9 +66,10 @@ python -m app.db.migrate && uvicorn app.main:app --host 0.0.0.0 --port $PORT
 - `suppliers`: 협력사코드, 상호, 사업자번호, 담당자, 전화, 이메일, 사용 여부
 - `supplier_accounts`: 협력사당 비밀번호 해시 하나. 최초 설정 전에는 비어 있다
 - `supplier_invites`: 1회 링크의 토큰 해시, 만료 시각, 사용 시각. 비밀번호는 저장하지 않는다
+- `buyer_accounts`: 구매 담당·승인자 로그인 계정
 - `items`: 품목코드, 품목명, 규격, 단위, 분류, 사용 여부
-- `prices`, `price_histories`: 계약단가와 단가 변경 이력. 협력사는 이름이 아니라 `suppliers.id`로 연결한다
+- `prices`, `price_histories`, `price_attachments`: 계약단가, 변경 이력, 공문 첨부
 - `orders`, `order_lines`: 발주 헤더와 행. 행의 품목코드는 발주 당시 값이다
-- `audit_logs`: 등록, 수정, 확정, 취소, 승인, 반려 이력
+- `audit_logs`: 등록, 수정, 확정, 취소, 검토, 승인, 반려 이력
 
 백업, 복구 목표, 호스팅 소유자는 아직 정해지지 않았다.

@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.core.passwords import hash_password, verify_password
-from app.core.tokens import issue_token, password_matches, read_token
+from app.core.tokens import issue_token, read_token, require_buyer
 from app.models.supplier import Supplier, SupplierAccount
 from app.routers.suppliers import db_session, find_supplier
+from app.services.buyers import authenticate_buyer, find_buyer, role_label
 
 router = APIRouter(tags=["auth"])
 MIN_PASSWORD = 8
@@ -27,21 +28,27 @@ def auth_status() -> dict[str, bool]:
 
 
 @router.post("/auth/login")
-def login(body: LoginRequest) -> dict[str, str | int]:
+def login(body: LoginRequest, db: Session = Depends(db_session)) -> dict[str, str | int]:
     settings = get_settings()
     if not settings.auth_ready():
         raise AppError("auth_not_configured", "인증 설정이 없습니다.", 503)
-    username = body.username.strip()
-    if username != settings.auth_username.strip() or not password_matches(body.password, settings.auth_password):
-        raise AppError("unauthorized", "아이디 또는 비밀번호가 올바르지 않습니다.", 401)
-    name = settings.auth_display_name.strip() or username
-    token, expires_in = issue_token(settings, username, name)
+    account = authenticate_buyer(db, body.username, body.password)
+    stamp = password_stamp(account.password_set_at)
+    token, expires_in = issue_token(
+        settings,
+        account.username,
+        account.display_name,
+        role=account.role,
+        password_stamp=stamp,
+    )
     return {
         "access_token": token,
         "token_type": "bearer",
         "expires_in": expires_in,
-        "username": username,
-        "name": name,
+        "username": account.username,
+        "name": account.display_name,
+        "role": account.role,
+        "roleLabel": role_label(account.role),
     }
 
 
@@ -92,15 +99,32 @@ def supplier_session(
         raise AppError("unauthorized", "로그인이 필요합니다.", 401)
     supplier = usable_supplier(db, identity["username"])
     account = supplier_account(db, supplier)
-    stamp = password_stamp(account)
+    stamp = password_stamp(account.password_set_at if account else None)
     if stamp is None or identity.get("pwd") != str(stamp):
         raise AppError("unauthorized", "로그인이 필요합니다.", 401)
     return {"username": supplier.code, "name": supplier.name, "role": "supplier"}
 
 
 @router.get("/auth/me")
-def me(authorization: str | None = Header(default=None)) -> dict[str, str]:
-    return read_token(get_settings(), authorization)
+def me(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(db_session),
+) -> dict[str, str]:
+    identity = require_buyer(authorization)
+    if identity is None:
+        raise AppError("auth_not_configured", "인증 설정이 없습니다.", 503)
+    account = find_buyer(db, identity["username"])
+    stamp = password_stamp(account.password_set_at)
+    if stamp is None or identity.get("pwd") != str(stamp):
+        raise AppError("unauthorized", "로그인이 필요합니다.", 401)
+    if account.role != identity.get("role"):
+        raise AppError("unauthorized", "로그인이 필요합니다.", 401)
+    return {
+        "username": account.username,
+        "name": account.display_name,
+        "role": account.role,
+        "roleLabel": role_label(account.role),
+    }
 
 
 def require_auth_configured() -> None:
@@ -130,10 +154,9 @@ def supplier_account(db: Session, supplier: Supplier) -> SupplierAccount | None:
     return db.scalar(select(SupplierAccount).where(SupplierAccount.supplier_id == supplier.id))
 
 
-def password_stamp(account: SupplierAccount | None) -> int | None:
-    if account is None or account.password_set_at is None or not account.password_hash:
+def password_stamp(value: datetime | None) -> int | None:
+    if value is None:
         return None
-    value = account.password_set_at
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return int(value.timestamp())
@@ -143,7 +166,7 @@ def supplier_token(supplier: Supplier, account: SupplierAccount) -> dict[str, st
     settings = get_settings()
     if not settings.auth_ready():
         raise AppError("auth_not_configured", "인증 설정이 없습니다.", 503)
-    stamp = password_stamp(account)
+    stamp = password_stamp(account.password_set_at)
     token, expires_in = issue_token(
         settings,
         supplier.code,

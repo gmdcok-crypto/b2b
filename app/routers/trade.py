@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.core.tokens import require_buyer
+from app.core.tokens import require_buyer, require_roles
 from app.models.catalog import AuditLog, Item, Order, OrderLine, Price, PriceAttachment, PriceHistory
 from app.models.supplier import Supplier
 from app.routers.suppliers import db_session, find_supplier
@@ -438,7 +438,7 @@ def published_price(db: Session, row: Price) -> dict:
     supplier = supplier_map(db)[row.supplier_id]
     histories = histories_for(db, [row.id]).get(row.id, [])
     files = attachments_for(db, [row.id]).get(row.id, [])
-    current = latest_request_attachment(files) if row.status == "승인대기" else None
+    current = latest_request_attachment(files) if row.status in ("승인대기", "검토완료") else None
     return price_public(
         row,
         item,
@@ -523,7 +523,7 @@ def list_prices(
         if row.item_id not in items or row.supplier_id not in suppliers:
             continue
         attached = files.get(row.id, [])
-        current = latest_request_attachment(attached) if row.status == "승인대기" else None
+        current = latest_request_attachment(attached) if row.status in ("승인대기", "검토완료") else None
         result.append(
             price_public(
                 row,
@@ -678,23 +678,73 @@ def decide_price(
     authorization: str | None = Header(default=None),
     db: Session = Depends(db_session),
 ) -> dict:
-    user = require_trade_buyer(authorization)
     row = find_price(db, doc_no)
-    if row.status != "승인대기" or row.request_amount is None:
-        raise AppError("invalid_status", "승인 대기 중인 단가가 없습니다.")
-    if body.type not in ("승인", "반려"):
-        raise AppError("invalid_status", "승인 또는 반려만 처리할 수 있습니다.")
+    if row.request_amount is None:
+        raise AppError("invalid_status", "처리할 변경요청이 없습니다.")
+    if body.type not in ("검토", "승인", "반려"):
+        raise AppError("invalid_status", "검토, 승인 또는 반려만 처리할 수 있습니다.")
     before = row.amount
     after = row.request_amount
+    if body.type == "검토":
+        require_roles(authorization, "buyer")
+        if row.status != "승인대기":
+            raise AppError("invalid_status", "승인 대기 중인 단가만 검토할 수 있습니다.")
+        user = actor_name(authorization)
+        row.status = "검토완료"
+        add_history(db, row, entry_type="검토", before=before, after=after, actor=user)
+        audit = add_audit(
+            db,
+            user=user,
+            action="검토",
+            target=item_map(db)[row.item_id].code,
+            before=money_text(before),
+            after=money_text(after),
+        )
+        db.commit()
+        db.refresh(row)
+        db.refresh(audit)
+        return envelope(published_price(db, row), audit)
+
     if body.type == "승인":
+        identity = require_roles(authorization, "approver")
+        if row.status != "검토완료":
+            raise AppError("invalid_status", "검토 완료된 단가만 승인할 수 있습니다.")
+        user = actor_name(authorization)
+        if identity is not None:
+            requester = latest_history_actor(db, row.id, "변경요청")
+            if requester and requester == user:
+                raise AppError("forbidden", "본인이 요청한 단가는 승인할 수 없습니다.", 403)
         row.amount = after
+        row.request_amount = None
+        row.status = "적용중"
+        add_history(db, row, entry_type="승인", before=before, after=after, actor=user)
+        audit = add_audit(
+            db,
+            user=user,
+            action="승인",
+            target=item_map(db)[row.item_id].code,
+            before=money_text(before),
+            after=money_text(after),
+        )
+        db.commit()
+        db.refresh(row)
+        db.refresh(audit)
+        return envelope(published_price(db, row), audit)
+
+    if row.status == "승인대기":
+        require_roles(authorization, "buyer")
+    elif row.status == "검토완료":
+        require_roles(authorization, "buyer", "approver")
+    else:
+        raise AppError("invalid_status", "반려할 수 있는 상태가 아닙니다.")
+    user = actor_name(authorization)
     row.request_amount = None
     row.status = "적용중"
-    add_history(db, row, entry_type=body.type, before=before, after=after, actor=user)
+    add_history(db, row, entry_type="반려", before=before, after=after, actor=user)
     audit = add_audit(
         db,
         user=user,
-        action=body.type,
+        action="반려",
         target=item_map(db)[row.item_id].code,
         before=money_text(before),
         after=money_text(after),
@@ -703,6 +753,15 @@ def decide_price(
     db.refresh(row)
     db.refresh(audit)
     return envelope(published_price(db, row), audit)
+
+
+def latest_history_actor(db: Session, price_id: int, entry_type: str) -> str:
+    row = db.scalar(
+        select(PriceHistory)
+        .where(PriceHistory.price_id == price_id, PriceHistory.entry_type == entry_type)
+        .order_by(PriceHistory.id.desc())
+    )
+    return (row.actor or "").strip() if row else ""
 
 
 @router.get("/orders")

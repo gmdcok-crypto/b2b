@@ -29,7 +29,10 @@ class Item(Base):
 class Price(Base):
     __tablename__ = "prices"
     __table_args__ = (
-        CheckConstraint("status IN ('작성', '적용중', '승인대기', '종료')", name="ck_prices_status"),
+        CheckConstraint(
+            "status IN ('작성', '적용중', '승인대기', '검토완료', '종료')",
+            name="ck_prices_status",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)

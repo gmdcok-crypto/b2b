@@ -17,6 +17,8 @@
     split: 42,
     message: "",
     supplierCode: "",
+    buyerRole: "",
+    buyerName: "",
     api: "API 확인 중",
     timer: 0,
     filters: {}
@@ -72,7 +74,7 @@
     state.sortKey = name === "orders" ? "date" : name === "audit" ? "at" : "code";
     state.sortDir = name === "prices" || name === "items" || name === "vendors" ? "asc" : "desc";
     if (!supplier && name === "prices" && pendingPriceRequests() > 0) {
-      state.filters = { status: "승인대기" };
+      state.filters = { status: isBuyerApprover() ? "검토완료" : "승인대기" };
     } else {
       state.filters = {};
     }
@@ -137,8 +139,22 @@
         { label: "저장", enable: () => price && price.draft, run: savePrice },
         "|",
         { label: "변경요청", enable: () => price && price.status === "적용중", run: requestPrice },
-        { label: "승인", enable: () => price && price.status === "승인대기", run: () => decidePrice("승인") },
-        { label: "반려", kind: "danger", enable: () => price && price.status === "승인대기", run: () => decidePrice("반려") },
+        {
+          label: "검토",
+          enable: () => isBuyerStaff() && price && price.status === "승인대기",
+          run: () => decidePrice("검토")
+        },
+        {
+          label: "승인",
+          enable: () => isBuyerApprover() && price && price.status === "검토완료",
+          run: () => decidePrice("승인")
+        },
+        {
+          label: "반려",
+          kind: "danger",
+          enable: () => canRejectPrice(price),
+          run: () => decidePrice("반려")
+        },
         "|",
         { label: "인쇄", run: printCurrent }
       ];
@@ -309,15 +325,38 @@
     });
   }
 
+  function isBuyerStaff() {
+    return !supplier && state.buyerRole === "buyer";
+  }
+
+  function isBuyerApprover() {
+    return !supplier && state.buyerRole === "approver";
+  }
+
+  function canRejectPrice(price) {
+    if (!price) return false;
+    if (isBuyerStaff() && (price.status === "승인대기" || price.status === "검토완료")) return true;
+    if (isBuyerApprover() && price.status === "검토완료") return true;
+    return false;
+  }
+
   function pendingPriceRequests() {
+    if (supplier) return 0;
+    if (isBuyerApprover()) {
+      return data.prices.filter((row) => !row.draft && row.status === "검토완료").length;
+    }
     return data.prices.filter((row) => !row.draft && row.status === "승인대기").length;
+  }
+
+  function pendingPriceLabel() {
+    return isBuyerApprover() ? "검토완료" : "변경요청";
   }
 
   function renderPendingSignals() {
     const button = document.querySelector('.nav-item[data-module="prices"]');
     if (!button) return;
     let badge = button.querySelector(".nav-badge");
-    const count = supplier ? 0 : pendingPriceRequests();
+    const count = pendingPriceRequests();
     if (count > 0) {
       if (!badge) {
         badge = el("span", { class: "nav-badge" });
@@ -325,7 +364,7 @@
       }
       badge.textContent = String(count);
       badge.hidden = false;
-      badge.setAttribute("aria-label", "변경요청 " + count + "건");
+      badge.setAttribute("aria-label", pendingPriceLabel() + " " + count + "건");
     } else if (badge) {
       badge.hidden = true;
       badge.textContent = "";
@@ -362,8 +401,8 @@
     const help = $("login-help");
     if (help) {
       help.replaceChildren(
-        el("p", {}, "1. 구매사 아이디와 비밀번호로 로그인합니다."),
-        el("p", {}, "2. 아이디·비밀번호는 서버에 설정된 구매사 계정입니다."),
+        el("p", {}, "1. 담당 또는 승인자 아이디로 로그인합니다."),
+        el("p", {}, "2. 담당은 변경요청 검토·반려, 승인자는 최종승인·반려만 합니다."),
         el("p", {}, "3. 로그인이 안 되면 관리자에게 문의하세요.")
       );
     }
@@ -415,7 +454,7 @@
     } else if (state.module === "prices") {
       const statusValue = state.filters.status || "전체";
       const fields = [
-        field("상태", select("status", supplier ? ["전체", "적용중", "승인대기", "종료"] : ["전체", "작성", "적용중", "승인대기", "종료"], statusValue))
+        field("상태", select("status", supplier ? ["전체", "적용중", "승인대기", "검토완료", "종료"] : ["전체", "작성", "적용중", "승인대기", "검토완료", "종료"], statusValue))
       ];
       if (!supplier) fields.push(field("협력사", textInput("vendor", "vendor", "")));
       fields.push(field("검색", searchInput("q", "품목코드, 품목명")));
@@ -433,7 +472,7 @@
       );
     } else {
       box.append(
-        field("작업", select("action", ["전체", "작성", "확정", "취소", "변경요청", "승인", "반려", "종료", "등록", "수정", "사용중지", "사용재개"], "전체")),
+        field("작업", select("action", ["전체", "작성", "확정", "취소", "변경요청", "검토", "승인", "반려", "종료", "등록", "수정", "사용중지", "사용재개"], "전체")),
         field("검색", searchInput("q", "대상, 사용자, 내용"))
       );
     }
@@ -1548,7 +1587,8 @@
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.message || "단가를 처리하지 못했습니다.");
         applySaved(price, body);
-        toast(type === "승인" ? "단가를 승인했습니다." : "요청을 반려했습니다.");
+        const done = type === "검토" ? "검토를 완료했습니다." : type === "승인" ? "단가를 승인했습니다." : "요청을 반려했습니다.";
+        toast(done);
       })
       .catch((error) => toast(error.message || "단가를 처리하지 못했습니다."));
   }
@@ -1566,7 +1606,8 @@
   }
 
   function actor() {
-    return supplier ? supplierCompany().name : "김구매";
+    if (supplier) return supplierCompany().name;
+    return state.buyerName || "김구매";
   }
 
   function supplierOwns(vendorName) {
@@ -1725,14 +1766,14 @@
   function renderStatus() {
     const rows = filtered();
     const record = selectedRecord();
-    const pending = supplier ? 0 : pendingPriceRequests();
+    const pending = pendingPriceRequests();
     let left = rows.length + "건";
     if (record && state.module === "orders") left += "  ·  " + (record.id || "신규") + "  ·  공급가액 " + money(orderAmount(record));
     else if (record && state.module === "prices") left += "  ·  " + record.code + "  ·  " + money(record.price);
     else if (record && state.module === "items") left += "  ·  " + (record.code || "신규");
     else if (record && state.module === "vendors") left += "  ·  " + (record.code || "신규") + "  ·  " + (record.name || "");
     const message = pending > 0
-      ? "변경요청 " + pending + "건 · 단가에서 승인·반려하세요"
+      ? pendingPriceLabel() + " " + pending + "건 · 단가에서 " + (isBuyerApprover() ? "승인·반려" : "검토·반려") + "하세요"
       : state.message;
     $("statusbar").replaceChildren(
       el("span", {}, left),
@@ -1870,7 +1911,7 @@
   }
   function stateClass(value) {
     if (["확정", "적용중", "승인", "사용", "등록", "인증"].includes(value)) return "ok";
-    if (["승인대기", "변경요청", "미인증"].includes(value)) return "wait";
+    if (["승인대기", "검토완료", "변경요청", "검토", "미인증"].includes(value)) return "wait";
     if (["취소", "반려", "중지"].includes(value)) return "stop";
     if (["종료"].includes(value)) return "mute";
     return "";
@@ -2029,10 +2070,16 @@
   function forceLogout() {
     clearAccessToken();
     state.supplierCode = "";
+    state.buyerRole = "";
+    state.buyerName = "";
     const button = $("logout");
     if (button) button.hidden = true;
     const name = $("session-name");
     if (name) name.textContent = supplier ? "" : "김구매";
+    const role = document.querySelector(".session-key");
+    if (!supplier && role) role.textContent = "구매사";
+    const foot = document.querySelector(".nav-foot");
+    if (!supplier && foot) foot.textContent = "구매 담당";
     const company = document.querySelector(".session strong");
     if (supplier && company) company.textContent = "";
     showLogin();
@@ -2062,6 +2109,13 @@
       state.supplierCode = me.username || "";
       const company = document.querySelector(".session strong");
       if (company) company.textContent = me.name || "";
+    } else {
+      state.buyerRole = me.role || "buyer";
+      state.buyerName = me.name || me.username || "";
+      const role = document.querySelector(".session-key");
+      if (role) role.textContent = me.roleLabel || (state.buyerRole === "approver" ? "승인자" : "담당");
+      const foot = document.querySelector(".nav-foot");
+      if (foot) foot.textContent = state.buyerRole === "approver" ? "구매 승인자" : "구매 담당";
     }
     loadSuppliers();
     finishBoot();
@@ -2129,7 +2183,7 @@
 
   function buyerAuthMessage(payload, fallback) {
     if (payload && payload.code === "auth_not_configured") {
-      return "인증 설정이 없습니다. 관리자에게 문의하세요.";
+      return "인증 설정이 없습니다. 담당·승인자 계정을 Railway에 넣으세요.";
     }
     if (payload && payload.code === "unauthorized") {
       return "아이디 또는 비밀번호가 올바르지 않습니다.";
@@ -2220,7 +2274,7 @@
       return "사용 중지된 협력사입니다. 구매사에 문의하세요.";
     }
     if (payload && payload.code === "auth_not_configured") {
-      return "인증 설정이 없습니다. Railway에 JWT_SECRET, AUTH_USERNAME, AUTH_PASSWORD를 넣으세요.";
+      return "인증 설정이 없습니다. Railway에 JWT_SECRET과 담당·승인자 계정을 넣으세요.";
     }
     if (payload && payload.code === "password_already_set") {
       return "이미 비밀번호가 설정되어 있습니다. 설정한 비밀번호로 로그인하세요.";

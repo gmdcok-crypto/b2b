@@ -19,10 +19,21 @@ class Settings(BaseSettings):
     auth_username: str = ""
     auth_password: str = ""
     auth_display_name: str = ""
+    auth_approver_username: str = ""
+    auth_approver_password: str = ""
+    auth_approver_display_name: str = ""
     upload_dir: str = ""
 
     def auth_ready(self) -> bool:
-        return bool(self.jwt_secret.strip() and len(self.jwt_secret.strip()) >= 32 and self.auth_username.strip() and self.auth_password)
+        return bool(
+            self.jwt_secret.strip()
+            and len(self.jwt_secret.strip()) >= 32
+            and self.auth_username.strip()
+            and self.auth_password
+            and self.auth_approver_username.strip()
+            and self.auth_approver_password
+            and self.auth_username.strip().lower() != self.auth_approver_username.strip().lower()
+        )
 
     def cors_origin_list(self) -> list[str]:
         defaults = [

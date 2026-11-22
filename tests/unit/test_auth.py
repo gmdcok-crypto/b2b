@@ -1,67 +1,129 @@
 import jwt
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.config import get_settings
+from app.db.base import Base
 from app.main import app
+from app.routers.suppliers import db_session
 
-
-@pytest.fixture
-def client() -> TestClient:
-    return TestClient(app)
+SECRET = "test-secret-value-with-32-bytes!!"
 
 
 def _reload_settings() -> None:
     get_settings.cache_clear()
 
 
-def test_auth_status_unconfigured(monkeypatch, client) -> None:
+@pytest.fixture
+def auth_client(monkeypatch: pytest.MonkeyPatch):
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def override():
+        db = sessions()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[db_session] = override
+    monkeypatch.setenv("JWT_SECRET", SECRET)
+    monkeypatch.setenv("AUTH_USERNAME", "buyer")
+    monkeypatch.setenv("AUTH_PASSWORD", "secret-pass")
+    monkeypatch.setenv("AUTH_DISPLAY_NAME", "김구매")
+    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "approver")
+    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "approve-pass")
+    monkeypatch.setenv("AUTH_APPROVER_DISPLAY_NAME", "이승인")
+    monkeypatch.setenv("JWT_EXPIRE_MINUTES", "30")
+    _reload_settings()
+    client = TestClient(app)
+    yield client
+    app.dependency_overrides.clear()
+    _reload_settings()
+
+
+def test_auth_status_unconfigured(monkeypatch) -> None:
     monkeypatch.setenv("JWT_SECRET", "")
     monkeypatch.setenv("AUTH_USERNAME", "")
     monkeypatch.setenv("AUTH_PASSWORD", "")
+    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "")
+    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "")
     _reload_settings()
-    response = client.get("/auth/status")
+    response = TestClient(app).get("/auth/status")
     assert response.status_code == 200
     assert response.json() == {"configured": False}
     _reload_settings()
 
 
-def test_login_rejects_missing_configuration(monkeypatch, client) -> None:
+def test_login_rejects_missing_configuration(monkeypatch) -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def override():
+        db = sessions()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[db_session] = override
     monkeypatch.setenv("JWT_SECRET", "")
     monkeypatch.setenv("AUTH_USERNAME", "")
     monkeypatch.setenv("AUTH_PASSWORD", "")
+    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "")
+    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "")
     _reload_settings()
-    response = client.post("/auth/login", json={"username": "buyer", "password": "secret"})
+    response = TestClient(app).post("/auth/login", json={"username": "buyer", "password": "secret"})
     assert response.status_code == 503
     assert response.json()["code"] == "auth_not_configured"
+    app.dependency_overrides.clear()
     _reload_settings()
 
 
-def test_login_and_me(monkeypatch, client) -> None:
-    monkeypatch.setenv("JWT_SECRET", "test-secret-value-with-32-bytes!!")
-    monkeypatch.setenv("AUTH_USERNAME", "buyer")
-    monkeypatch.setenv("AUTH_PASSWORD", "secret-pass")
-    monkeypatch.setenv("AUTH_DISPLAY_NAME", "김구매")
-    monkeypatch.setenv("JWT_EXPIRE_MINUTES", "30")
-    _reload_settings()
-    denied = client.post("/auth/login", json={"username": "buyer", "password": "wrong"})
+def test_login_and_me(auth_client: TestClient) -> None:
+    denied = auth_client.post("/auth/login", json={"username": "buyer", "password": "wrong"})
     assert denied.status_code == 401
-    response = client.post("/auth/login", json={"username": "buyer", "password": "secret-pass"})
+    response = auth_client.post("/auth/login", json={"username": "buyer", "password": "secret-pass"})
     assert response.status_code == 200
     body = response.json()
     assert body["token_type"] == "bearer"
     assert body["name"] == "김구매"
-    payload = jwt.decode(body["access_token"], "test-secret-value-with-32-bytes!!", algorithms=["HS256"])
+    assert body["role"] == "buyer"
+    assert body["roleLabel"] == "담당"
+    payload = jwt.decode(body["access_token"], SECRET, algorithms=["HS256"])
     assert payload["sub"] == "buyer"
-    me = client.get("/auth/me", headers={"Authorization": "Bearer " + body["access_token"]})
+    assert payload["role"] == "buyer"
+    me = auth_client.get("/auth/me", headers={"Authorization": "Bearer " + body["access_token"]})
     assert me.status_code == 200
     assert me.json()["username"] == "buyer"
-    missing = client.get("/auth/me")
+    assert me.json()["role"] == "buyer"
+    missing = auth_client.get("/auth/me")
     assert missing.status_code == 401
-    _reload_settings()
 
 
-def test_shell_is_installable(client) -> None:
+def test_approver_login(auth_client: TestClient) -> None:
+    response = auth_client.post("/auth/login", json={"username": "approver", "password": "approve-pass"})
+    assert response.status_code == 200
+    assert response.json()["role"] == "approver"
+    assert response.json()["roleLabel"] == "승인자"
+    assert response.json()["name"] == "이승인"
+
+
+def test_shell_is_installable() -> None:
+    client = TestClient(app)
     manifest = client.get("/manifest.webmanifest")
     assert manifest.status_code == 200
     assert "manifest" in manifest.headers["content-type"]

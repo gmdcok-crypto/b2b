@@ -48,6 +48,7 @@ def test_supplier_migration_creates_mysql_compatible_tables(tmp_path) -> None:
         "order_lines",
         "audit_logs",
         "price_attachments",
+        "buyer_accounts",
         "alembic_version",
     } <= names
     supplier_uniques = {item["name"] for item in inspect(engine).get_unique_constraints("suppliers")}
