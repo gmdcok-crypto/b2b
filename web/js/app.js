@@ -77,6 +77,9 @@
     if (state.module === "orders" && name !== "orders") {
       discardOrderDrafts();
     }
+    if (state.module === "prices" && name !== "prices") {
+      discardPriceDrafts();
+    }
     state.module = name;
     state.message = "";
     state.sortKey = name === "orders" ? "date" : name === "audit" ? "at" : name === "accounts" ? "username" : "code";
@@ -351,7 +354,7 @@
         const person = $("session-name");
         if (person && company.contact) person.textContent = company.contact;
       }
-      if (!filtered().some((row) => rowId(row) === state.selectedId) && !isDraftOrderSelected()) {
+      if (!filtered().some((row) => rowId(row) === state.selectedId) && !isDraftSelected()) {
         state.selectedId = firstId(filtered());
       }
       renderWorkspace();
@@ -554,7 +557,7 @@
   function onFilter() {
     state.filters = readFilters();
     const rows = filtered();
-    if (!rows.some((row) => rowId(row) === state.selectedId) && !isDraftOrderSelected()) {
+    if (!rows.some((row) => rowId(row) === state.selectedId) && !isDraftSelected()) {
       state.selectedId = firstId(rows);
     }
     paintList();
@@ -685,6 +688,7 @@
 
   function choose(id, repaintList) {
     if (state.module === "orders") discardOrderDrafts();
+    if (state.module === "prices") discardPriceDrafts();
     state.selectedId = id;
     if (repaintList) paintList();
     else markSelected();
@@ -1002,6 +1006,18 @@
     ];
   }
 
+  function discardPriceDrafts(exceptId) {
+    data.prices = data.prices.filter((price) => !price.draft || price.id === exceptId);
+  }
+
+  function isDraftPriceSelected() {
+    return state.module === "prices" && !!selectedPrice()?.draft;
+  }
+
+  function isDraftSelected() {
+    return isDraftOrderSelected() || isDraftPriceSelected();
+  }
+
   function newPrice() {
     const current = selectedPrice();
     if (current && current.draft && !current.code) {
@@ -1009,6 +1025,7 @@
       if (input) input.focus();
       return;
     }
+    discardPriceDrafts();
     const price = {
       id: nextPriceId(),
       code: "",
@@ -1030,7 +1047,7 @@
     renderCriteria();
     state.selectedId = price.id;
     renderWorkspace();
-    toast("계약단가 등록을 열었습니다. 품목과 단가를 입력한 뒤 저장하세요.");
+    toast("계약단가 등록을 열었습니다. 저장 전에는 목록에 나타나지 않습니다.");
     const input = $("composite").querySelector('[data-field="code"]');
     if (input) input.focus();
   }
@@ -2009,7 +2026,8 @@
     }
     if (state.module === "prices") {
       return data.prices.filter((price) => {
-        if (supplier && (!supplierOwns(price.vendor) || price.draft)) return false;
+        if (price.draft) return false;
+        if (supplier && !supplierOwns(price.vendor)) return false;
         if (filters.status && filters.status !== "전체" && price.status !== filters.status) return false;
         if (filters.vendor && !price.vendor.includes(filters.vendor)) return false;
         if (filters.q && !(price.code + price.name + price.spec).toLowerCase().includes(filters.q.toLowerCase())) return false;
