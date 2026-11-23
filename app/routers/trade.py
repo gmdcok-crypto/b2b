@@ -798,6 +798,15 @@ def latest_history_actor(db: Session, price_id: int, entry_type: str) -> str:
     return (row.actor or "").strip() if row else ""
 
 
+@router.get("/orders/next-no")
+def peek_order_no(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(db_session),
+) -> dict:
+    require_trade_buyer(authorization)
+    return {"id": next_order_no(db)}
+
+
 @router.get("/orders")
 def list_orders(
     authorization: str | None = Header(default=None),

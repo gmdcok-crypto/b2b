@@ -140,6 +140,9 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
     assert approve_row["attachment"]["name"] == "결제.pdf"
     assert "결제 공문" in approve_row["note"]
 
+    peeked = trade_client.get("/orders/next-no")
+    assert peeked.status_code == 200
+    assert peeked.json()["id"].endswith("0001")
     order = trade_client.post(
         "/orders",
         json={
@@ -153,6 +156,7 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
     assert order.status_code == 201
     assert order.json()["record"]["status"] == "작성"
     doc = order.json()["record"]["id"]
+    assert doc == peeked.json()["id"]
     assert len(doc) == 10 and doc.isdigit()
     assert doc.endswith("0001")
     second = trade_client.post(

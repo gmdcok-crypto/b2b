@@ -1640,10 +1640,29 @@
       .catch((error) => toast(error.message || "사용 여부를 바꾸지 못했습니다."));
   }
 
+  function orderNoPrefix(day) {
+    const y = String(day.getFullYear()).slice(-2);
+    const m = String(day.getMonth() + 1).padStart(2, "0");
+    const d = String(day.getDate()).padStart(2, "0");
+    return y + m + d;
+  }
+
+  function peekOrderNo() {
+    const prefix = orderNoPrefix(new Date());
+    let seq = 0;
+    data.orders.forEach((order) => {
+      const id = String(order.id || "");
+      if (id.length === 10 && id.startsWith(prefix) && /^\d{4}$/.test(id.slice(6))) {
+        seq = Math.max(seq, Number(id.slice(6)));
+      }
+    });
+    return prefix + String(seq + 1).padStart(4, "0");
+  }
+
   function newOrder() {
     const order = {
       tempId: "ONEW-" + orderSeq++,
-      id: "",
+      id: peekOrderNo(),
       draft: true,
       date: formatDate(new Date()),
       due: formatDate(new Date()),
@@ -1663,6 +1682,16 @@
     toast("작성 문서를 열었습니다.");
     const input = $("composite").querySelector('.detail-pane input[data-field="vendor"]');
     if (input) input.focus();
+    fetch(apiBase() + "/orders/next-no", { headers: authHeaders(false) })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || !body.id) return;
+        if (!order.draft) return;
+        order.id = body.id;
+        paintList();
+        paintDetail();
+      })
+      .catch(() => {});
   }
 
   function orderPayload(order) {
@@ -1963,6 +1992,7 @@
     if (!tr) return;
     const cells = tr.children;
     if (state.module === "orders") {
+      cells[0].textContent = record.id || "";
       cells[1].textContent = record.date;
       if (supplier) {
         cells[2].replaceChildren(stateNode(record.status));
