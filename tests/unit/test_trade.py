@@ -150,7 +150,7 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
             "due": "2026-11-20",
             "vendor": "한빛금속",
             "buyer": "김구매",
-            "lines": [{"code": "AL-1", "name": "알루미늄", "spec": "Ø20", "unit": "M", "qty": 2, "price": 5000, "due": "2026-12-01"}],
+            "lines": [{"code": "AL-1", "name": "알루미늄", "spec": "Ø20", "unit": "M", "qty": 2, "price": 1, "due": "2026-12-01"}],
         },
     )
     assert order.status_code == 201
@@ -161,6 +161,22 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
     assert doc.endswith("0001")
     assert order.json()["record"]["due"] == "2026-11-20"
     assert order.json()["record"]["lines"][0]["due"] == "2026-11-20"
+    assert order.json()["record"]["lines"][0]["price"] == 5000
+    trade_client.post(
+        "/items",
+        json={"code": "NO-1", "name": "미계약", "unit": "EA", "group": "원자재"},
+    )
+    denied = trade_client.post(
+        "/orders",
+        json={
+            "date": "2026-11-16",
+            "due": "2026-11-20",
+            "vendor": "한빛금속",
+            "buyer": "김구매",
+            "lines": [{"code": "NO-1", "qty": 1, "price": 100}],
+        },
+    )
+    assert denied.status_code == 400
     second = trade_client.post(
         "/orders",
         json={
@@ -204,12 +220,24 @@ def test_supplier_sees_only_own_confirmed_order(auth_env, trade_client: TestClie
         json={"code": "AL-1", "name": "알루미늄", "unit": "M", "group": "원자재"},
     )
     assert created.status_code == 201
+    trade_client.post(
+        "/prices",
+        headers=buyer_headers,
+        json={"code": "AL-1", "vendor": "한빛금속", "price": 10, "from": "2026-11-01"},
+    )
+    trade_client.post(
+        "/prices",
+        headers=buyer_headers,
+        json={"code": "AL-1", "vendor": "세진", "price": 12, "from": "2026-11-01"},
+    )
     trade_client.post("/auth/supplier/password", json={"code": "V-0001", "password": "password1"})
     token = trade_client.post("/auth/supplier/login", json={"code": "V-0001", "password": "password1"}).json()["access_token"]
     headers = {"Authorization": "Bearer " + token}
-    payload = {"date": "2026-11-16", "due": "2026-11-20", "vendor": "한빛금속", "lines": [{"code": "AL-1", "qty": 1, "price": 10}]}
+    payload = {"date": "2026-11-16", "due": "2026-11-20", "vendor": "한빛금속", "lines": [{"code": "AL-1", "qty": 1, "price": 999}]}
 
     draft = trade_client.post("/orders", headers=buyer_headers, json=payload)
+    assert draft.status_code == 201
+    assert draft.json()["record"]["lines"][0]["price"] == 10
     doc = draft.json()["record"]["id"]
     hidden = trade_client.get("/orders", headers=headers)
     assert hidden.status_code == 200
@@ -218,8 +246,10 @@ def test_supplier_sees_only_own_confirmed_order(auth_env, trade_client: TestClie
     trade_client.post("/orders/" + doc + "/confirm", headers=buyer_headers, json=payload)
     visible = trade_client.get("/orders", headers=headers).json()
     assert [row["id"] for row in visible] == [doc]
-    other_payload = {"date": "2026-11-16", "due": "2026-11-20", "vendor": "세진", "lines": [{"code": "AL-1", "qty": 1, "price": 10}]}
+    other_payload = {"date": "2026-11-16", "due": "2026-11-20", "vendor": "세진", "lines": [{"code": "AL-1", "qty": 1, "price": 999}]}
     other = trade_client.post("/orders", headers=buyer_headers, json=other_payload)
+    assert other.status_code == 201
+    assert other.json()["record"]["lines"][0]["price"] == 12
     other_doc = other.json()["record"]["id"]
     trade_client.post("/orders/" + other_doc + "/confirm", headers=buyer_headers, json=other_payload)
     again = trade_client.get("/orders", headers=headers).json()

@@ -845,7 +845,13 @@
         { label: "규격", width: "96px", render: (row, index) => lineCell(row, index, "spec", edit) },
         { label: "단위", width: "42px", render: (row, index) => lineCell(row, index, "unit", edit) },
         { key: "qty", label: "수량", width: "64px", align: "num", render: (row, index) => lineCell(row, index, "qty", edit, true) },
-        { key: "price", label: "단가", width: "76px", align: "num", render: (row, index) => lineCell(row, index, "price", edit, true) },
+        {
+          key: "price",
+          label: "단가",
+          width: "76px",
+          align: "num",
+          render: (row) => el("span", {}, row.price === "" || row.price == null ? "—" : money(row.price))
+        },
         { key: "amount", label: "공급가액", width: "96px", align: "num", render: (row) => el("span", { "data-amount": "1" }, money(lineAmount(row))) }
       ];
     }
@@ -1113,7 +1119,29 @@
       line.unit = "EA";
     }
     const contract = activeContractPrice(order.vendor, line.code);
-    if (contract != null) line.price = contract;
+    line.price = contract == null ? "" : contract;
+  }
+
+  function ensureOrderContractPrices(order) {
+    if (!order.vendor) {
+      toast("협력사를 선택하세요.");
+      return false;
+    }
+    const lines = (order.lines || []).filter((line) => line.code || line.name || Number(line.qty) > 0);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (!line.code) {
+        toast((index + 1) + "행 품목코드를 선택하세요.");
+        return false;
+      }
+      const contract = activeContractPrice(order.vendor, line.code);
+      if (contract == null) {
+        toast(line.code + "는 해당 협력사 적용중 계약단가가 없습니다.");
+        return false;
+      }
+      line.price = contract;
+    }
+    return true;
   }
 
   function nextPriceId() {
@@ -1768,6 +1796,7 @@
   function saveOrder() {
     const order = selectedOrder();
     if (!order || order.status !== "작성") return;
+    if (!ensureOrderContractPrices(order)) return;
     persistOrder(order)
       .then(() => toast("발주를 저장했습니다."))
       .catch((error) => toast(error.message || "발주를 저장하지 못했습니다."));
@@ -1777,6 +1806,11 @@
     const order = selectedOrder();
     if (!order || !order.lines.some((line) => Number(line.qty) > 0 && line.code)) {
       toast("품목코드와 수량이 있는 행이 없습니다.");
+      return;
+    }
+    if (!ensureOrderContractPrices(order)) return;
+    if (!order.lines.some((line) => Number(line.qty) > 0 && line.code && activeContractPrice(order.vendor, line.code) != null)) {
+      toast("계약단가가 있는 품목과 수량을 입력하세요.");
       return;
     }
     const send = (saved) => fetch(apiBase() + "/orders/" + encodeURIComponent(saved.id) + "/confirm", {
@@ -2304,23 +2338,28 @@
     }
 
     function queryItems(text) {
+      if (!order.vendor) return [];
       const needle = String(text || "").trim().toLowerCase();
       return data.items
-        .filter((item) => !item.draft && (item.use === "사용" || item.code === line.code))
+        .filter((item) => !item.draft && item.use === "사용")
+        .filter((item) => activeContractPrice(order.vendor, item.code) != null)
         .filter((item) => {
           if (!needle) return true;
           return (item.code + " " + item.name + " " + (item.spec || "")).toLowerCase().includes(needle);
         })
-        .sort((a, b) => {
-          const aHit = activeContractPrice(order.vendor, a.code) != null ? 0 : 1;
-          const bHit = activeContractPrice(order.vendor, b.code) != null ? 0 : 1;
-          if (aHit !== bHit) return aHit - bHit;
-          return String(a.code).localeCompare(String(b.code));
-        })
+        .sort((a, b) => String(a.code).localeCompare(String(b.code)))
         .slice(0, 40);
     }
 
     function openList(text) {
+      if (!order.vendor) {
+        matches = [];
+        active = -1;
+        list.replaceChildren(el("div", { class: "lookup-empty" }, "협력사를 먼저 선택하세요."));
+        placeLookupList(input, list);
+        list.hidden = false;
+        return;
+      }
       matches = queryItems(text);
       active = matches.length ? 0 : -1;
       paintOptions();

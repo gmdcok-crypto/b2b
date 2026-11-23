@@ -337,27 +337,54 @@ def apply_item(row: Item, body: ItemBody, *, code: str | None) -> None:
         row.code = code
 
 
+def active_contract_amount(db: Session, supplier_id: int, item_code: str) -> tuple[Item, int] | None:
+    code = item_code.strip().upper()
+    if not code:
+        return None
+    item = db.scalar(select(Item).where(Item.code == code))
+    if item is None:
+        return None
+    price = db.scalar(
+        select(Price)
+        .where(
+            Price.item_id == item.id,
+            Price.supplier_id == supplier_id,
+            Price.status == "적용중",
+        )
+        .order_by(Price.id.desc())
+    )
+    if price is None:
+        return None
+    return item, int(price.amount)
+
+
 def replace_lines(db: Session, order: Order, lines: list[LineBody]) -> None:
     existing = db.scalars(select(OrderLine).where(OrderLine.order_id == order.id)).all()
     for row in existing:
         db.delete(row)
     number = 1
-    # 납기는 발주 헤더 납기일만 쓰고, 품목 행 납기는 두지 않는다.
+    # 납기는 발주 헤더 납기일만 쓰고, 품목 행 단가는 적용중 계약단가만 쓴다.
     due = order.due_date
     for line in lines:
         code = line.code.strip().upper()
         if not code and not line.name.strip() and not line.qty:
             continue
+        if not code:
+            raise AppError("invalid_lines", "품목코드를 선택하세요.")
+        contracted = active_contract_amount(db, order.supplier_id, code)
+        if contracted is None:
+            raise AppError("invalid_price", code + "는 해당 협력사 적용중 계약단가가 없습니다.")
+        item, amount = contracted
         db.add(
             OrderLine(
                 order_id=order.id,
                 line_no=number,
-                item_code=code[:20],
-                name=line.name.strip()[:100],
-                spec=line.spec.strip()[:120],
-                unit=line.unit.strip()[:10],
+                item_code=item.code[:20],
+                name=(line.name.strip() or item.name)[:100],
+                spec=(line.spec.strip() or (item.spec or ""))[:120],
+                unit=(line.unit.strip() or item.unit)[:10],
                 qty=float(line.qty or 0),
-                unit_price=int(line.price or 0),
+                unit_price=amount,
                 due_date=due,
             )
         )
