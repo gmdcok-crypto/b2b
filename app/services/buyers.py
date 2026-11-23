@@ -67,14 +67,6 @@ def ensure_buyer_accounts(db: Session, settings: Settings | None = None) -> None
             password=cfg.auth_password,
         ):
             changed = True
-        if _create_if_missing(
-            db,
-            username=cfg.auth_approver_username.strip(),
-            display_name=(cfg.auth_approver_display_name.strip() or cfg.auth_approver_username.strip()),
-            role="approver",
-            password=cfg.auth_approver_password,
-        ):
-            changed = True
         staff_user = cfg.auth_staff_username.strip()
         if staff_user and _create_if_missing(
             db,
@@ -128,7 +120,7 @@ def authenticate_buyer(db: Session, username: str, password: str) -> BuyerAccoun
     if account_count(db) == 0:
         raise AppError(
             "no_accounts",
-            "구매 계정이 없습니다. Railway에 최초 관리자·승인자 시드 변수를 한 번만 넣으세요.",
+            "구매 계정이 없습니다. Railway에 최초 관리자 시드 변수(AUTH_USERNAME, AUTH_PASSWORD)를 한 번만 넣으세요.",
             503,
         )
     row = db.scalar(select(BuyerAccount).where(BuyerAccount.username == username.strip()))
@@ -202,16 +194,17 @@ def ensure_role_coverage(
     role = next_role if next_role is not None else (row.role if row else None)
     use = next_use if next_use is not None else (row.use_status if row else "사용")
     exclude = row.id if row is not None else None
-    existing = account_count(db) if exclude is None else max(account_count(db) - 1, 0)
+    had_approver = active_role_count(db, "approver") > 0
     admin_count = active_role_count(db, "admin", exclude_id=exclude)
     approver_count = active_role_count(db, "approver", exclude_id=exclude)
     if use == "사용" and role == "admin":
         admin_count += 1
     if use == "사용" and role == "approver":
         approver_count += 1
-    if existing == 0 and use == "사용" and role == "admin":
+    if account_count(db) == 0 and use == "사용" and role == "admin":
         return
     if admin_count < 1:
         raise AppError("invalid_role", "사용 중인 관리자 계정이 하나 이상 있어야 합니다.")
-    if approver_count < 1:
+    # 승인자가 생긴 뒤에는 최소 1명을 유지한다. 최초에는 관리자만 있어도 된다.
+    if had_approver and approver_count < 1:
         raise AppError("invalid_role", "사용 중인 승인자 계정이 하나 이상 있어야 합니다.")

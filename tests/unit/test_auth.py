@@ -39,9 +39,6 @@ def auth_client(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("AUTH_USERNAME", "gstec")
     monkeypatch.setenv("AUTH_PASSWORD", "secret-pass")
     monkeypatch.setenv("AUTH_DISPLAY_NAME", "지에스관리")
-    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "approver")
-    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "approve-pass")
-    monkeypatch.setenv("AUTH_APPROVER_DISPLAY_NAME", "이승인")
     monkeypatch.setenv("JWT_EXPIRE_MINUTES", "30")
     _reload_settings()
     client = TestClient(app)
@@ -54,8 +51,6 @@ def test_auth_status_needs_only_jwt(monkeypatch) -> None:
     monkeypatch.setenv("JWT_SECRET", SECRET)
     monkeypatch.setenv("AUTH_USERNAME", "")
     monkeypatch.setenv("AUTH_PASSWORD", "")
-    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "")
-    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "")
     _reload_settings()
     response = TestClient(app).get("/auth/status")
     assert response.status_code == 200
@@ -65,10 +60,6 @@ def test_auth_status_needs_only_jwt(monkeypatch) -> None:
 
 def test_auth_status_unconfigured(monkeypatch) -> None:
     monkeypatch.setenv("JWT_SECRET", "")
-    monkeypatch.setenv("AUTH_USERNAME", "")
-    monkeypatch.setenv("AUTH_PASSWORD", "")
-    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "")
-    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "")
     _reload_settings()
     response = TestClient(app).get("/auth/status")
     assert response.status_code == 200
@@ -123,12 +114,19 @@ def test_login_and_me(auth_client: TestClient) -> None:
     assert missing.status_code == 401
 
 
-def test_approver_login(auth_client: TestClient) -> None:
+def test_approver_created_in_db(auth_client: TestClient) -> None:
+    admin = auth_client.post("/auth/login", json={"username": "gstec", "password": "secret-pass"})
+    headers = {"Authorization": "Bearer " + admin.json()["access_token"]}
+    created = auth_client.post(
+        "/buyers",
+        headers=headers,
+        json={"username": "approver", "name": "이승인", "role": "승인자", "password": "approve-pass"},
+    )
+    assert created.status_code == 201
     response = auth_client.post("/auth/login", json={"username": "approver", "password": "approve-pass"})
     assert response.status_code == 200
     assert response.json()["role"] == "approver"
     assert response.json()["roleLabel"] == "승인자"
-    assert response.json()["name"] == "이승인"
 
 
 def test_login_without_seed_reports_no_accounts(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -151,8 +149,6 @@ def test_login_without_seed_reports_no_accounts(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("JWT_SECRET", SECRET)
     monkeypatch.setenv("AUTH_USERNAME", "")
     monkeypatch.setenv("AUTH_PASSWORD", "")
-    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "")
-    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "")
     _reload_settings()
     response = TestClient(app).post("/auth/login", json={"username": "gstec", "password": "secret-pass"})
     assert response.status_code == 503

@@ -37,9 +37,6 @@ def buyer_client(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("AUTH_STAFF_USERNAME", "buyer")
     monkeypatch.setenv("AUTH_STAFF_PASSWORD", "staff-pass")
     monkeypatch.setenv("AUTH_STAFF_DISPLAY_NAME", "김구매")
-    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "approver")
-    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "approve-pass")
-    monkeypatch.setenv("AUTH_APPROVER_DISPLAY_NAME", "이승인")
     get_settings.cache_clear()
     client = TestClient(app)
     yield client
@@ -53,6 +50,15 @@ def _login(client: TestClient, username: str, password: str) -> dict[str, str]:
     return {"Authorization": "Bearer " + response.json()["access_token"]}
 
 
+def _ensure_approver(client: TestClient, headers: dict[str, str]) -> None:
+    created = client.post(
+        "/buyers",
+        headers=headers,
+        json={"username": "approver", "name": "이승인", "role": "승인자", "password": "approve-pass"},
+    )
+    assert created.status_code == 201
+
+
 def test_gstec_is_admin(buyer_client: TestClient) -> None:
     response = buyer_client.post("/auth/login", json={"username": "gstec", "password": "secret-pass"})
     assert response.status_code == 200
@@ -63,14 +69,22 @@ def test_gstec_is_admin(buyer_client: TestClient) -> None:
 def test_list_seeded_buyers(buyer_client: TestClient) -> None:
     headers = _login(buyer_client, "gstec", "secret-pass")
     rows = buyer_client.get("/buyers", headers=headers).json()
-    assert {row["username"] for row in rows} == {"gstec", "buyer", "approver"}
-    assert {row["role"] for row in rows} == {"관리자", "담당", "승인자"}
+    assert {row["username"] for row in rows} == {"gstec", "buyer"}
+    assert {row["role"] for row in rows} == {"관리자", "담당"}
 
 
 def test_staff_cannot_manage_accounts(buyer_client: TestClient) -> None:
     headers = _login(buyer_client, "buyer", "staff-pass")
     denied = buyer_client.get("/buyers", headers=headers)
     assert denied.status_code == 403
+
+
+def test_create_approver_in_db(buyer_client: TestClient) -> None:
+    headers = _login(buyer_client, "gstec", "secret-pass")
+    _ensure_approver(buyer_client, headers)
+    login = buyer_client.post("/auth/login", json={"username": "approver", "password": "approve-pass"})
+    assert login.status_code == 200
+    assert login.json()["role"] == "approver"
 
 
 def test_create_and_login_new_buyer(buyer_client: TestClient) -> None:
@@ -89,6 +103,7 @@ def test_create_and_login_new_buyer(buyer_client: TestClient) -> None:
 
 def test_cannot_stop_last_approver(buyer_client: TestClient) -> None:
     headers = _login(buyer_client, "gstec", "secret-pass")
+    _ensure_approver(buyer_client, headers)
     denied = buyer_client.patch(
         "/buyers/approver",
         headers=headers,
@@ -111,6 +126,7 @@ def test_cannot_stop_last_admin(buyer_client: TestClient) -> None:
 
 def test_change_password_and_role(buyer_client: TestClient) -> None:
     headers = _login(buyer_client, "gstec", "secret-pass")
+    _ensure_approver(buyer_client, headers)
     buyer_client.post(
         "/buyers",
         headers=headers,
@@ -142,8 +158,6 @@ def test_env_password_does_not_overwrite_managed_password(buyer_client: TestClie
     )
     monkeypatch.setenv("AUTH_PASSWORD", "secret-pass")
     monkeypatch.setenv("AUTH_USERNAME", "")
-    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "")
-    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "")
     get_settings.cache_clear()
     assert buyer_client.post("/auth/login", json={"username": "gstec", "password": "secret-pass"}).status_code == 401
     again = buyer_client.post("/auth/login", json={"username": "gstec", "password": "changed-pass"})

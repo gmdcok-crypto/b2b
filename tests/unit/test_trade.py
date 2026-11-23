@@ -44,9 +44,6 @@ def auth_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("AUTH_STAFF_USERNAME", "buyer")
     monkeypatch.setenv("AUTH_STAFF_PASSWORD", "secret-pass")
     monkeypatch.setenv("AUTH_STAFF_DISPLAY_NAME", "김구매")
-    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "approver")
-    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "approve-pass")
-    monkeypatch.setenv("AUTH_APPROVER_DISPLAY_NAME", "이승인")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
@@ -56,6 +53,17 @@ def _login(client: TestClient, username: str, password: str) -> dict[str, str]:
     response = client.post("/auth/login", json={"username": username, "password": password})
     assert response.status_code == 200
     return {"Authorization": "Bearer " + response.json()["access_token"]}
+
+
+def _ensure_approver(client: TestClient) -> dict[str, str]:
+    admin = _login(client, "gstec", "secret-pass")
+    created = client.post(
+        "/buyers",
+        headers=admin,
+        json={"username": "approver", "name": "이승인", "role": "승인자", "password": "approve-pass"},
+    )
+    assert created.status_code == 201
+    return _login(client, "approver", "approve-pass")
 
 
 def test_trade_lists_start_empty(trade_client: TestClient) -> None:
@@ -188,7 +196,7 @@ def test_supplier_sees_only_own_confirmed_order(auth_env, trade_client: TestClie
 
 def test_price_review_and_approve_roles(auth_env, trade_client: TestClient) -> None:
     buyer = _login(trade_client, "buyer", "secret-pass")
-    approver = _login(trade_client, "approver", "approve-pass")
+    approver = _ensure_approver(trade_client)
     trade_client.post("/suppliers", headers=buyer, json={"code": "V-0001", "name": "한빛금속"})
     trade_client.post(
         "/items",

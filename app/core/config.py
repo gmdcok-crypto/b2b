@@ -32,15 +32,12 @@ class Settings(BaseSettings):
         return bool(self.jwt_secret.strip() and len(self.jwt_secret.strip()) >= 32)
 
     def bootstrap_ready(self) -> bool:
-        """DB가 비어 있을 때만 쓰는 최초 시드 변수 준비 여부."""
+        """DB가 비어 있을 때 최초 관리자 시드 변수 준비 여부. 승인자는 계정 메뉴에서 만든다."""
         admin = self.auth_username.strip().lower()
-        approver = self.auth_approver_username.strip().lower()
-        if not admin or not self.auth_password or not approver or not self.auth_approver_password:
-            return False
-        if admin == approver:
+        if not admin or not self.auth_password:
             return False
         staff = self.auth_staff_username.strip().lower()
-        if staff and (staff in (admin, approver) or not self.auth_staff_password):
+        if staff and (staff == admin or not self.auth_staff_password):
             return False
         return True
 

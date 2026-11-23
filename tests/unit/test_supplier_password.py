@@ -42,9 +42,6 @@ def auth_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("AUTH_USERNAME", "gstec")
     monkeypatch.setenv("AUTH_PASSWORD", "secret-pass")
     monkeypatch.setenv("AUTH_DISPLAY_NAME", "지에스관리")
-    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "approver")
-    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "approve-pass")
-    monkeypatch.setenv("AUTH_APPROVER_DISPLAY_NAME", "이승인")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
