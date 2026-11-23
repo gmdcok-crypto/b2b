@@ -738,16 +738,27 @@ def decide_price(
     else:
         raise AppError("invalid_status", "반려할 수 있는 상태가 아닙니다.")
     user = actor_name(authorization)
+    rejected = after
     row.request_amount = None
     row.status = "적용중"
-    add_history(db, row, entry_type="반려", before=before, after=after, actor=user)
+    # 반려는 단가를 바꾸지 않으므로 이전·이후 모두 현재 적용단가로 남긴다.
+    add_history(
+        db,
+        row,
+        entry_type="반려",
+        before=before,
+        after=before,
+        actor=user,
+        note="요청 " + money_text(rejected) + " 반려",
+    )
     audit = add_audit(
         db,
         user=user,
         action="반려",
         target=item_map(db)[row.item_id].code,
         before=money_text(before),
-        after=money_text(after),
+        after=money_text(before),
+        note="요청 " + money_text(rejected) + " 반려",
     )
     db.commit()
     db.refresh(row)

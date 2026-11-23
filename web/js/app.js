@@ -854,7 +854,7 @@
         { label: "일자", width: "110px", render: (row) => row.date },
         { label: "구분", width: "84px", render: (row) => stateNode(row.type) },
         { label: "이전단가", width: "100px", align: "num", render: (row) => row.before === "" ? "" : money(row.before) },
-        { label: "변경단가", width: "100px", align: "num", render: (row) => money(row.after) },
+        { label: "이후단가", width: "100px", align: "num", render: (row) => row.after === "" ? "" : money(row.after) },
         { label: "처리자", width: "120px", render: (row) => row.by },
         { label: "공문", width: "140px", render: (row) => historyAttachmentNode(record, row) },
         { label: "내용", render: (row) => row.note }

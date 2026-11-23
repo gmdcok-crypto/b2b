@@ -226,3 +226,35 @@ def test_price_review_and_approve_roles(auth_env, trade_client: TestClient) -> N
     approved = trade_client.post("/prices/" + price_id + "/decide", headers=approver, json={"type": "승인"})
     assert approved.json()["record"]["status"] == "적용중"
     assert approved.json()["record"]["price"] == 1200
+
+
+def test_price_reject_keeps_before_and_after_same(auth_env, trade_client: TestClient) -> None:
+    buyer = _login(trade_client, "buyer", "secret-pass")
+    trade_client.post("/suppliers", headers=buyer, json={"code": "V-0001", "name": "한빛금속"})
+    trade_client.post(
+        "/items",
+        headers=buyer,
+        json={"code": "AL-1", "name": "알루미늄", "unit": "M", "group": "원자재"},
+    )
+    price = trade_client.post(
+        "/prices",
+        headers=buyer,
+        json={"code": "AL-1", "vendor": "한빛금속", "price": 1000, "from": "2026-11-01"},
+    )
+    price_id = price.json()["record"]["id"]
+    trade_client.post(
+        "/prices/" + price_id + "/request",
+        headers=buyer,
+        data={"request": "1500"},
+        files={"file": ("공문.pdf", b"%PDF-1.4 x", "application/pdf")},
+    )
+    rejected = trade_client.post("/prices/" + price_id + "/decide", headers=buyer, json={"type": "반려"})
+    assert rejected.status_code == 200
+    record = rejected.json()["record"]
+    assert record["status"] == "적용중"
+    assert record["price"] == 1000
+    assert record["request"] in (None, "", 0)
+    reject_row = next(row for row in record["history"] if row["type"] == "반려")
+    assert reject_row["before"] == 1000
+    assert reject_row["after"] == 1000
+    assert "1,500" in reject_row["note"]
