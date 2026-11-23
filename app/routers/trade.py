@@ -41,10 +41,6 @@ class PriceBody(BaseModel):
     note: str = ""
 
 
-class PriceDecideBody(BaseModel):
-    type: str = ""
-
-
 class LineBody(BaseModel):
     code: str = ""
     name: str = ""
@@ -675,20 +671,21 @@ def download_price_attachment(
 
 
 @router.post("/prices/{doc_no}/decide")
-def decide_price(
+async def decide_price(
     doc_no: str,
-    body: PriceDecideBody,
+    type: str = Form(...),
+    file: UploadFile | None = File(None),
     authorization: str | None = Header(default=None),
     db: Session = Depends(db_session),
 ) -> dict:
     row = find_price(db, doc_no)
     if row.request_amount is None:
         raise AppError("invalid_status", "처리할 변경요청이 없습니다.")
-    if body.type not in ("검토", "승인", "반려"):
+    if type not in ("검토", "승인", "반려"):
         raise AppError("invalid_status", "검토, 승인 또는 반려만 처리할 수 있습니다.")
     before = row.amount
     after = row.request_amount
-    if body.type == "검토":
+    if type == "검토":
         require_roles(authorization, "buyer")
         if row.status != "승인대기":
             raise AppError("invalid_status", "승인 대기 중인 단가만 검토할 수 있습니다.")
@@ -708,19 +705,41 @@ def decide_price(
         db.refresh(audit)
         return envelope(published_price(db, row), audit)
 
-    if body.type == "승인":
+    if type == "승인":
         identity = require_roles(authorization, "approver")
         if row.status != "검토완료":
             raise AppError("invalid_status", "검토 완료된 단가만 승인할 수 있습니다.")
+        if file is None or not (file.filename or "").strip():
+            raise AppError("invalid_file", "상부 결제 공문을 첨부하세요.")
         user = actor_name(authorization)
         if identity is not None:
             requester = latest_history_actor(db, row.id, "변경요청")
             if requester and requester == user:
                 raise AppError("forbidden", "본인이 요청한 단가는 승인할 수 없습니다.", 403)
+        original, stored, content_type, size_bytes = await save_price_attachment(file)
         row.amount = after
         row.request_amount = None
         row.status = "적용중"
-        add_history(db, row, entry_type="승인", before=before, after=after, actor=user)
+        history = add_history(
+            db,
+            row,
+            entry_type="승인",
+            before=before,
+            after=after,
+            actor=user,
+            note="결제 공문 " + original,
+        )
+        db.add(
+            PriceAttachment(
+                price_id=row.id,
+                history_id=history.id,
+                original_name=original,
+                stored_name=stored,
+                content_type=content_type,
+                size_bytes=size_bytes,
+                uploaded_by=user[:100],
+            )
+        )
         audit = add_audit(
             db,
             user=user,
@@ -728,6 +747,7 @@ def decide_price(
             target=item_map(db)[row.item_id].code,
             before=money_text(before),
             after=money_text(after),
+            note=original,
         )
         db.commit()
         db.refresh(row)

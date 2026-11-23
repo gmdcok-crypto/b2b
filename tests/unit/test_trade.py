@@ -125,11 +125,20 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
     downloaded = trade_client.get("/prices/" + price_id + "/attachments/" + str(attachment_id))
     assert downloaded.status_code == 200
     assert downloaded.content.startswith(b"%PDF-1.4")
-    reviewed = trade_client.post("/prices/" + price_id + "/decide", json={"type": "검토"})
+    reviewed = trade_client.post("/prices/" + price_id + "/decide", data={"type": "검토"})
     assert reviewed.json()["record"]["status"] == "검토완료"
-    approved = trade_client.post("/prices/" + price_id + "/decide", json={"type": "승인"})
+    missing_file = trade_client.post("/prices/" + price_id + "/decide", data={"type": "승인"})
+    assert missing_file.status_code == 400
+    approved = trade_client.post(
+        "/prices/" + price_id + "/decide",
+        data={"type": "승인"},
+        files={"file": ("결제.pdf", b"%PDF-1.4 approve", "application/pdf")},
+    )
     assert approved.json()["record"]["price"] == 5000
     assert approved.json()["record"]["status"] == "적용중"
+    approve_row = next(row for row in approved.json()["record"]["history"] if row["type"] == "승인")
+    assert approve_row["attachment"]["name"] == "결제.pdf"
+    assert "결제 공문" in approve_row["note"]
 
     order = trade_client.post(
         "/orders",
@@ -229,17 +238,36 @@ def test_price_review_and_approve_roles(auth_env, trade_client: TestClient) -> N
         data={"request": "1200"},
         files={"file": ("공문.pdf", b"%PDF-1.4 x", "application/pdf")},
     )
-    denied = trade_client.post("/prices/" + price_id + "/decide", headers=approver, json={"type": "승인"})
+    denied = trade_client.post(
+        "/prices/" + price_id + "/decide",
+        headers=approver,
+        data={"type": "승인"},
+        files={"file": ("결제.pdf", b"%PDF-1.4 x", "application/pdf")},
+    )
     assert denied.status_code == 400
-    denied_review = trade_client.post("/prices/" + price_id + "/decide", headers=approver, json={"type": "검토"})
+    denied_review = trade_client.post("/prices/" + price_id + "/decide", headers=approver, data={"type": "검토"})
     assert denied_review.status_code == 403
-    reviewed = trade_client.post("/prices/" + price_id + "/decide", headers=buyer, json={"type": "검토"})
+    reviewed = trade_client.post("/prices/" + price_id + "/decide", headers=buyer, data={"type": "검토"})
     assert reviewed.json()["record"]["status"] == "검토완료"
-    denied_staff = trade_client.post("/prices/" + price_id + "/decide", headers=buyer, json={"type": "승인"})
+    denied_staff = trade_client.post(
+        "/prices/" + price_id + "/decide",
+        headers=buyer,
+        data={"type": "승인"},
+        files={"file": ("결제.pdf", b"%PDF-1.4 x", "application/pdf")},
+    )
     assert denied_staff.status_code == 403
-    approved = trade_client.post("/prices/" + price_id + "/decide", headers=approver, json={"type": "승인"})
+    missing_file = trade_client.post("/prices/" + price_id + "/decide", headers=approver, data={"type": "승인"})
+    assert missing_file.status_code == 400
+    approved = trade_client.post(
+        "/prices/" + price_id + "/decide",
+        headers=approver,
+        data={"type": "승인"},
+        files={"file": ("결제.pdf", b"%PDF-1.4 x", "application/pdf")},
+    )
     assert approved.json()["record"]["status"] == "적용중"
     assert approved.json()["record"]["price"] == 1200
+    approve_row = next(row for row in approved.json()["record"]["history"] if row["type"] == "승인")
+    assert approve_row["attachment"]["name"] == "결제.pdf"
 
 
 def test_price_reject_keeps_before_and_after_same(auth_env, trade_client: TestClient) -> None:
@@ -263,7 +291,7 @@ def test_price_reject_keeps_before_and_after_same(auth_env, trade_client: TestCl
         data={"request": "1500"},
         files={"file": ("공문.pdf", b"%PDF-1.4 x", "application/pdf")},
     )
-    rejected = trade_client.post("/prices/" + price_id + "/decide", headers=buyer, json={"type": "반려"})
+    rejected = trade_client.post("/prices/" + price_id + "/decide", headers=buyer, data={"type": "반려"})
     assert rejected.status_code == 200
     record = rejected.json()["record"]
     assert record["status"] == "적용중"

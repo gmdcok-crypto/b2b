@@ -458,7 +458,7 @@
     if (help) {
       help.replaceChildren(
         el("p", {}, "1. 관리자·담당·승인자 아이디로 로그인합니다. 계정은 DB에서 관리합니다."),
-        el("p", {}, "2. 단가 변경요청은 협력사가 하고, 담당은 검토·반려, 승인자는 최종승인·반려합니다."),
+        el("p", {}, "2. 단가 변경요청은 협력사가 하고, 담당은 검토·반려, 승인자는 결제 공문 첨부 후 최종승인·반려합니다."),
         el("p", {}, "3. 계정 메뉴는 관리자만 사용할 수 있습니다."),
         el("p", {}, "4. 최초 관리자만 시드하고, 담당·승인자는 계정 메뉴에서 만듭니다.")
       );
@@ -926,6 +926,9 @@
         }
         if (canRequest) {
           rows.push([{ label: "공문첨부", key: "file", file: true, edit: true, span: true }]);
+        }
+        if (isBuyerApprover() && record.status === "검토완료") {
+          rows.push([{ label: "결제공문", key: "file", file: true, edit: true, span: true }]);
         }
         if (record.attachment && record.attachment.name) {
           rows.push([{ label: "첨부공문", key: "attachment", attachment: true, span: true }]);
@@ -1816,15 +1819,25 @@
 
   function decidePrice(type) {
     const price = selectedPrice();
+    if (type === "승인" && !price._file) {
+      toast("상부 결제 공문을 첨부하세요.");
+      return;
+    }
+    const body = new FormData();
+    body.append("type", type);
+    if (type === "승인") {
+      body.append("file", price._file, price._file.name);
+    }
     fetch(apiBase() + "/prices/" + encodeURIComponent(price.id) + "/decide", {
       method: "POST",
-      headers: authHeaders(true),
-      body: JSON.stringify({ type: type })
+      headers: authHeaders(false),
+      body: body
     })
       .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.message || "단가를 처리하지 못했습니다.");
-        applySaved(price, body);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.message || "단가를 처리하지 못했습니다.");
+        delete price._file;
+        applySaved(price, payload);
         const done = type === "검토" ? "검토를 완료했습니다." : type === "승인" ? "단가를 승인했습니다." : "요청을 반려했습니다.";
         toast(done);
       })

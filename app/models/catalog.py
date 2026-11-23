@@ -64,7 +64,7 @@ class PriceHistory(Base):
 
 
 class PriceAttachment(Base):
-    """단가 변경요청 공문 첨부."""
+    """단가 변경요청·승인 결제 공문 첨부. history_id로 이력 행과 연결한다."""
 
     __tablename__ = "price_attachments"
 
