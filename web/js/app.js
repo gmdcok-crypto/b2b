@@ -636,6 +636,8 @@
           });
         } else if (field.attachment) {
           input = attachmentLink(record);
+        } else if (field.lookup === "item" && editable) {
+          input = fieldItemLookup(record, field);
         } else if (field.options && editable) {
           input = fieldSelect(record, field);
         } else {
@@ -909,7 +911,7 @@
           { label: "적용종료", key: "to", edit: drafting, date: true }
         ],
         [
-          { label: "품목코드", key: "code", edit: drafting, options: priceItemCodes(record), allowEmpty: true, after: refreshPriceItem },
+          { label: "품목코드", key: "code", edit: drafting, lookup: "item" },
           { label: "품목명", key: "name" },
           { label: "규격", key: "spec" },
           { label: "단위", key: "unit" }
@@ -1069,19 +1071,6 @@
     record.name = item ? item.name : "";
     record.spec = item ? item.spec : "";
     record.unit = item ? item.unit : "";
-  }
-
-  function refreshPriceItem(record) {
-    applyPriceItem(record);
-    syncListRow(record);
-    paintDetail();
-  }
-
-  function priceItemCodes(record) {
-    return data.items
-      .filter((item) => item.use === "사용" || item.code === record.code)
-      .map((item) => item.code)
-      .sort();
   }
 
   function nextPriceId() {
@@ -2221,6 +2210,140 @@
       renderStatus();
     });
     return node;
+  }
+
+  function fieldItemLookup(record, field) {
+    const root = el("div", { class: "lookup" });
+    const input = el("input", {
+      type: "search",
+      "data-field": field.key,
+      value: record[field.key] || "",
+      placeholder: "코드·품목명·규격 검색",
+      autocomplete: "off"
+    });
+    const list = el("div", { class: "lookup-list", hidden: true });
+    let active = -1;
+    let matches = [];
+
+    function closeList() {
+      list.hidden = true;
+      list.replaceChildren();
+      active = -1;
+      matches = [];
+    }
+
+    function paintList() {
+      list.replaceChildren();
+      if (!matches.length) {
+        list.append(el("div", { class: "lookup-empty" }, "일치하는 품목이 없습니다."));
+        list.hidden = false;
+        return;
+      }
+      matches.forEach((item, index) => {
+        const label = item.code + "  " + item.name + (item.spec ? "  / " + item.spec : "") + (item.unit ? "  [" + item.unit + "]" : "");
+        const option = el("button", {
+          type: "button",
+          class: "lookup-option" + (index === active ? " is-active" : ""),
+          "data-index": String(index)
+        }, label);
+        option.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+          pickItem(item);
+        });
+        list.append(option);
+      });
+      list.hidden = false;
+    }
+
+    function queryItems(text) {
+      const needle = String(text || "").trim().toLowerCase();
+      return data.items
+        .filter((item) => !item.draft && (item.use === "사용" || item.code === record.code))
+        .filter((item) => {
+          if (!needle) return true;
+          return (item.code + " " + item.name + " " + (item.spec || "")).toLowerCase().includes(needle);
+        })
+        .sort((a, b) => String(a.code).localeCompare(String(b.code)))
+        .slice(0, 40);
+    }
+
+    function openList(text) {
+      matches = queryItems(text);
+      active = matches.length ? 0 : -1;
+      paintList();
+    }
+
+    function pickItem(item) {
+      record.code = item.code;
+      input.value = item.code;
+      applyPriceItem(record);
+      syncListRow(record);
+      closeList();
+      paintDetail();
+      renderStatus();
+      const next = $("composite").querySelector('.detail-pane [data-field="price"]');
+      if (next) next.focus();
+    }
+
+    function moveActive(step) {
+      if (!matches.length) return;
+      active = (active + step + matches.length) % matches.length;
+      paintList();
+      const option = list.querySelector('.lookup-option[data-index="' + active + '"]');
+      if (option) option.scrollIntoView({ block: "nearest" });
+    }
+
+    input.addEventListener("focus", () => openList(input.value));
+    input.addEventListener("input", () => {
+      record.code = String(input.value || "").trim();
+      openList(input.value);
+      syncListRow(record);
+      renderStatus();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        if (list.hidden) openList(input.value);
+        else moveActive(1);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        if (!list.hidden) moveActive(-1);
+        return;
+      }
+      if (event.key === "Enter") {
+        if (!list.hidden && active >= 0 && matches[active]) {
+          event.preventDefault();
+          pickItem(matches[active]);
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        closeList();
+      }
+    });
+    input.addEventListener("blur", () => {
+      window.setTimeout(() => {
+        closeList();
+        const code = normalizeItemCode(input.value);
+        input.value = code;
+        record.code = code;
+        applyPriceItem(record);
+        syncListRow(record);
+        paintTab();
+        renderStatus();
+        const nameInput = $("composite").querySelector('.detail-pane [data-field="name"]');
+        const specInput = $("composite").querySelector('.detail-pane [data-field="spec"]');
+        const unitInput = $("composite").querySelector('.detail-pane [data-field="unit"]');
+        if (nameInput) nameInput.value = record.name || "";
+        if (specInput) specInput.value = record.spec || "";
+        if (unitInput) unitInput.value = record.unit || "";
+      }, 120);
+    });
+
+    root.append(input, list);
+    return root;
   }
   function fieldInputAttrs(record, field, editable) {
     const attrs = {
