@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.core.passwords import hash_password, verify_password
+from app.core.time import as_kst, naive_now_kst
 from app.core.tokens import issue_token, read_token, require_buyer
 from app.models.supplier import Supplier, SupplierAccount
 from app.routers.suppliers import db_session, find_supplier
@@ -83,7 +84,7 @@ def supplier_password(body: SupplierLoginRequest, db: Session = Depends(db_sessi
         account = SupplierAccount(supplier_id=supplier.id)
         db.add(account)
     account.password_hash = hash_password(password)
-    account.password_set_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    account.password_set_at = naive_now_kst()
     db.commit()
     db.refresh(account)
     return supplier_token(supplier, account)
@@ -157,9 +158,7 @@ def supplier_account(db: Session, supplier: Supplier) -> SupplierAccount | None:
 def password_stamp(value: datetime | None) -> int | None:
     if value is None:
         return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return int(value.timestamp())
+    return int(as_kst(value).timestamp())
 
 
 def supplier_token(supplier: Supplier, account: SupplierAccount) -> dict[str, str | int]:

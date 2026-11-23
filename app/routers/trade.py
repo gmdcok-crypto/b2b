@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
+from app.core.time import today_kst
 from app.core.tokens import require_buyer, require_roles
 from app.models.catalog import AuditLog, Item, Order, OrderLine, Price, PriceAttachment, PriceHistory
 from app.models.supplier import Supplier
@@ -379,7 +380,7 @@ def apply_order(db: Session, row: Order, body: OrderBody) -> Supplier:
 
 def next_order_no(db: Session) -> str:
     """작성일 기준 YYMMDD + 일별 연번 4자리. 예: 2611240001."""
-    prefix = date.today().strftime("%y%m%d")
+    prefix = today_kst().strftime("%y%m%d")
     rows = db.scalars(select(Order.doc_no).where(Order.doc_no.like(prefix + "%"))).all()
     seq = 0
     for doc in rows:
@@ -411,7 +412,7 @@ def add_history(
 ) -> PriceHistory:
     row = PriceHistory(
         price_id=price.id,
-        entry_date=date.today(),
+        entry_date=today_kst(),
         entry_type=entry_type,
         before_amount=before,
         after_amount=after,
@@ -834,8 +835,8 @@ def create_order(
     require_trade_buyer(authorization)
     row = Order(
         doc_no=next_order_no(db),
-        order_date=date.today(),
-        due_date=date.today(),
+        order_date=today_kst(),
+        due_date=today_kst(),
         supplier_id=0,
         buyer="",
         status="작성",

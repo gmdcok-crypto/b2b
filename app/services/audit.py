@@ -1,11 +1,10 @@
 """변경 이력을 같은 트랜잭션에 남긴다."""
 
-from datetime import datetime
-
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import AppError
+from app.core.time import as_kst, naive_now_kst
 from app.core.tokens import read_token
 from app.models.catalog import AuditLog
 
@@ -41,7 +40,7 @@ def add_audit(
     note: str = "",
 ) -> AuditLog:
     row = AuditLog(
-        logged_at=datetime.now(),
+        logged_at=naive_now_kst(),
         user_name=(user or "")[:100],
         action=action[:20],
         target=(target or "")[:40],
@@ -54,8 +53,9 @@ def add_audit(
 
 
 def audit_public(row: AuditLog) -> dict[str, str]:
+    stamped = as_kst(row.logged_at) if row.logged_at.tzinfo else row.logged_at
     return {
-        "at": row.logged_at.strftime("%Y-%m-%d %H:%M"),
+        "at": stamped.strftime("%Y-%m-%d %H:%M"),
         "user": row.user_name,
         "action": row.action,
         "target": row.target,

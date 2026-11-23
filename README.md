@@ -23,6 +23,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 - `GET /health`는 데이터베이스를 조회하지 않는다.
 - `DATABASE_URL` 또는 `MYSQL_URL`이 있을 때만 DB 세션을 만든다.
+- 업무 날짜·시간(발주번호, 이력, 감사로그, 화면 표시)은 한국(`Asia/Seoul`) 기준이다. JWT 만료만 UTC다.
 
 ## Netlify
 

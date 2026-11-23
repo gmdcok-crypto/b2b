@@ -1,7 +1,5 @@
 """구매 관리자·담당·승인자 계정 관리. 계정 CRUD는 관리자만 한다."""
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -9,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
+from app.core.time import naive_now_kst
 from app.core.tokens import require_admin
 from app.models.buyer import BuyerAccount
 from app.routers.suppliers import db_session
@@ -83,7 +82,7 @@ def create_buyer(
     use = clean_use(body.use or "사용")
     password = clean_password(body.password)
     ensure_role_coverage(db, next_role=role, next_use=use)
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = naive_now_kst()
     row = BuyerAccount(
         username=username,
         display_name=name,

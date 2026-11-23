@@ -4,14 +4,13 @@
 환경 변수 시드는 buyer_accounts가 비어 있을 때만 한 번 넣는다.
 """
 
-from datetime import datetime, timezone
-
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.core.passwords import hash_password, verify_password
+from app.core.time import naive_now_kst
 from app.models.buyer import BUYER_ROLES, BuyerAccount
 
 MIN_PASSWORD = 8
@@ -90,7 +89,7 @@ def _promote_admin(db: Session, username: str) -> bool:
         return False
     row.role = "admin"
     row.use_status = "사용"
-    row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    row.updated_at = naive_now_kst()
     return True
 
 
@@ -100,7 +99,7 @@ def _create_if_missing(db: Session, *, username: str, display_name: str, role: s
     exists = db.scalar(select(BuyerAccount.id).where(BuyerAccount.username == username))
     if exists is not None:
         return False
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = naive_now_kst()
     db.add(
         BuyerAccount(
             username=username[:80],
@@ -170,7 +169,7 @@ def clean_use(value: str) -> str:
 
 def set_password(row: BuyerAccount, password: str) -> None:
     row.password_hash = hash_password(clean_password(password))
-    row.password_set_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    row.password_set_at = naive_now_kst()
     row.updated_at = row.password_set_at
 
 

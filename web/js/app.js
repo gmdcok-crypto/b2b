@@ -888,8 +888,8 @@
         [
           { label: "문서번호", key: "id" },
           { label: "상태", key: "status" },
-          { label: "발주일", key: "date", edit: true },
-          { label: "납기일", key: "due", edit: true }
+          { label: "발주일", key: "date", edit: true, date: true },
+          { label: "납기일", key: "due", edit: true, date: true }
         ],
         [
           { label: "협력사", key: "vendor", edit: true, options: vendorNames(record.vendor), allowEmpty: true },
@@ -1085,7 +1085,7 @@
 
   function isIsoDate(value) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return false;
-    const parsed = new Date(value + "T00:00:00");
+    const parsed = new Date(value + "T00:00:00+09:00");
     return !Number.isNaN(parsed.getTime()) && formatDate(parsed) === value;
   }
 
@@ -1641,10 +1641,7 @@
   }
 
   function orderNoPrefix(day) {
-    const y = String(day.getFullYear()).slice(-2);
-    const m = String(day.getMonth() + 1).padStart(2, "0");
-    const d = String(day.getDate()).padStart(2, "0");
-    return y + m + d;
+    return formatDate(day).slice(2).replace(/-/g, "");
   }
 
   function peekOrderNo() {
@@ -2195,12 +2192,14 @@
   }
   function lineCell(row, index, key, edit, numeric) {
     if (!edit) return numeric ? (key === "qty" ? qty(row[key]) : money(row[key])) : show(row[key]);
-    return el("input", {
+    const attrs = {
       class: "cell-input",
       "data-index": String(index),
       "data-key": key,
       value: row[key] == null ? "" : String(row[key])
-    });
+    };
+    if (key === "due") attrs.type = "date";
+    return el("input", attrs);
   }
   function stateNode(value) {
     return el("span", { class: "state " + stateClass(value) }, value || "");
@@ -2780,12 +2779,20 @@
   }
   function show(value) { return value == null ? "" : String(value); }
   function formatDate(date) {
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return date.getFullYear() + "-" + month + "-" + day;
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Seoul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(date);
   }
   function formatTime(date) {
-    return String(date.getHours()).padStart(2, "0") + ":" + String(date.getMinutes()).padStart(2, "0");
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Seoul",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(date);
   }
   function cssEscape(value) {
     return window.CSS && CSS.escape ? CSS.escape(value) : value.replace(/"/g, '\\"');
