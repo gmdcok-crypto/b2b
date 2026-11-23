@@ -613,4 +613,8 @@ html.boot .app { visibility: hidden; }
   .print-sign div { width: 90px; height: 72px; border: 1px solid #222; border-left: 0; text-align: center; font-size: 12px; padding-top: 4px; }
   .print-sign div:first-child { border-left: 1px solid #222; }
   .print-note { margin-top: 8px; font-size: 10px; color: #333; }
+  .print-root.statement h1 { letter-spacing: 0.55em; }
+  .print-parties { margin-bottom: 8px; }
+  .print-parties th { text-align: center; background: #f3f3f3; }
+  .print-parties td.lab { width: 72px; background: #fafafa; white-space: nowrap; }
 }

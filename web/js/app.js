@@ -252,6 +252,19 @@
 
   function supplierCommands() {
     const record = selectedRecord();
+    if (state.module === "orders") {
+      const order = selectedOrder();
+      return [
+        { label: "조회", kind: "primary", run: () => toast(countText(filtered().length)) },
+        "|",
+        { label: "발주서", enable: () => !!order, run: printCurrent },
+        {
+          label: "거래명세표",
+          enable: () => order && order.status === "확정",
+          run: printStatementCurrent
+        }
+      ];
+    }
     if (state.module === "prices") {
       const price = selectedPrice();
       return [
@@ -267,6 +280,10 @@
       "|",
       { label: "인쇄", enable: () => state.module === "audit" || !!record, run: printCurrent }
     ];
+  }
+
+  function buyerCompanyName() {
+    return "(주)지에스테크";
   }
 
   function isSupplierPortal() {
@@ -505,7 +522,8 @@
         el("p", {}, "2. 처음이거나 초기화 직후면 비밀번호를 8자 이상으로 두 번 입력해 설정합니다."),
         el("p", {}, "3. 이미 설정한 뒤에는 같은 비밀번호로 로그인합니다."),
         el("p", {}, "4. 단가 변경요청 시 공문 파일을 반드시 첨부합니다."),
-        el("p", {}, "5. 비밀번호를 잊으면 구매사에 초기화를 요청하세요.")
+        el("p", {}, "5. 확정 발주는 발주서·거래명세표(구매사 지정 양식)로 인쇄할 수 있습니다."),
+        el("p", {}, "6. 비밀번호를 잊으면 구매사에 초기화를 요청하세요.")
       );
     }
   }
@@ -2227,48 +2245,150 @@
 
   function printCurrent() {
     const root = $("print-root");
+    root.className = "print-root";
     root.replaceChildren();
     if (state.module === "orders" && selectedOrder()) printOrder(root, selectedOrder());
     else printTable(root, TITLES[state.module], listColumns(), sortRows(filtered()));
     window.print();
   }
 
+  function printStatementCurrent() {
+    const order = selectedOrder();
+    if (!order || order.status !== "확정") {
+      toast("확정된 발주만 거래명세표를 출력할 수 있습니다.");
+      return;
+    }
+    const root = $("print-root");
+    root.className = "print-root statement";
+    root.replaceChildren();
+    printStatement(root, order);
+    window.print();
+  }
+
   function printOrder(root, order) {
     root.append(el("h1", {}, "발주서"));
-    root.append(el("div", { class: "print-meta" }, el("span", {}, "구매사 (주)한성산업"), el("span", {}, order.id)));
+    root.append(el("div", { class: "print-meta" }, el("span", {}, "구매사 " + buyerCompanyName()), el("span", {}, order.id)));
     const head = el("table");
     head.append(printRow(["문서번호", order.id, "상태", order.status, "발주일", order.date, "납기일", order.due]));
-    head.append(printRow(["협력사", order.vendor, "담당", order.buyer, "통화", order.currency, "부가세", order.vat]));
+    head.append(printRow(["협력사", order.vendor, "담당", order.buyer, "통화", order.currency || "KRW", "부가세", order.vat || "별도"]));
     head.append(printRow(["비고", order.note || " ", "", "", "", "", "", ""]));
-    const lines = el("table");
-    lines.append(el("tr", {}, ["No", "품목코드", "품목명", "규격", "단위", "수량", "단가", "공급가액"].map((label, index) => {
-      return el("th", { class: index >= 5 ? "num" : "" }, label);
-    })));
-    order.lines.forEach((line, index) => {
-      lines.append(el("tr", {}, [
-        el("td", { class: "num" }, String(index + 1)),
-        el("td", {}, line.code),
-        el("td", {}, line.name),
-        el("td", {}, line.spec),
-        el("td", {}, line.unit),
-        el("td", { class: "num" }, qty(line.qty)),
-        el("td", { class: "num" }, money(line.price)),
-        el("td", { class: "num" }, money(lineAmount(line)))
-      ]));
-    });
-    lines.append(el("tr", {}, [
-      el("td", { colspan: "5" }, "합계"),
-      el("td", { class: "num" }, qty(order.lines.reduce((sum, line) => sum + Number(line.qty || 0), 0))),
-      el("td", {}, ""),
-      el("td", { class: "num" }, money(orderAmount(order)))
-    ]));
+    root.append(head, printOrderLines(order));
     const sign = el("div", { class: "print-sign" }, el("div", {}, "담당"), el("div", {}, "승인"));
-    root.append(head, lines, sign, el("p", { class: "print-note" }, "부가세 별도. 직인과 양식은 출력 견본이 확정되기 전의 기본 배치입니다."));
+    root.append(sign, el("p", { class: "print-note" }, "부가세 별도. " + buyerCompanyName() + " 지정 발주 양식입니다."));
+  }
+
+  function printStatement(root, order) {
+    const vendor =
+      data.vendors.find((row) => row.name === order.vendor && !row.draft) ||
+      (supplier ? supplierCompany() : null) ||
+      {};
+    root.append(el("h1", {}, "거래명세표"));
+    root.append(
+      el(
+        "div",
+        { class: "print-meta" },
+        el("span", {}, buyerCompanyName() + " 지정 양식"),
+        el("span", {}, "발행일 " + formatDate(new Date()))
+      )
+    );
+    const parties = el("table", { class: "print-parties" });
+    parties.append(
+      el("tr", {}, [
+        el("th", { colspan: "2" }, "공급자 (협력사)"),
+        el("th", { colspan: "2" }, "공급받는자 (구매사)")
+      ])
+    );
+    parties.append(
+      el("tr", {}, [
+        el("td", { class: "lab" }, "상호"),
+        el("td", {}, order.vendor || vendor.name || ""),
+        el("td", { class: "lab" }, "상호"),
+        el("td", {}, buyerCompanyName())
+      ])
+    );
+    parties.append(
+      el("tr", {}, [
+        el("td", { class: "lab" }, "사업자번호"),
+        el("td", {}, vendor.bizNo || ""),
+        el("td", { class: "lab" }, "담당"),
+        el("td", {}, order.buyer || "")
+      ])
+    );
+    parties.append(
+      el("tr", {}, [
+        el("td", { class: "lab" }, "담당/전화"),
+        el("td", {}, [vendor.contact || "", vendor.phone || ""].filter(Boolean).join(" / ") || ""),
+        el("td", { class: "lab" }, "통화/부가세"),
+        el("td", {}, (order.currency || "KRW") + " / " + (order.vat || "별도"))
+      ])
+    );
+    const head = el("table");
+    head.append(printRow(["발주번호", order.id, "발주일", order.date, "납기일", order.due, "상태", order.status]));
+    head.append(printRow(["비고", order.note || " ", "", "", "", "", "", ""]));
+    const sign = el("div", { class: "print-sign" }, el("div", {}, "인수"), el("div", {}, "공급자"));
+    root.append(
+      parties,
+      head,
+      printOrderLines(order),
+      sign,
+      el(
+        "p",
+        { class: "print-note" },
+        "부가세 별도. 본 거래명세표는 " +
+          buyerCompanyName() +
+          " 발주(" +
+          order.id +
+          ") 기준으로 작성하는 구매사 지정 양식입니다."
+      )
+    );
+  }
+
+  function printOrderLines(order) {
+    const lines = el("table");
+    lines.append(
+      el(
+        "tr",
+        {},
+        ["No", "품목코드", "품목명", "규격", "단위", "수량", "단가", "공급가액"].map((label, index) => {
+          return el("th", { class: index >= 5 ? "num" : "" }, label);
+        })
+      )
+    );
+    (order.lines || []).forEach((line, index) => {
+      lines.append(
+        el("tr", {}, [
+          el("td", { class: "num" }, String(index + 1)),
+          el("td", {}, line.code),
+          el("td", {}, line.name),
+          el("td", {}, line.spec),
+          el("td", {}, line.unit),
+          el("td", { class: "num" }, qty(line.qty)),
+          el("td", { class: "num" }, money(line.price)),
+          el("td", { class: "num" }, money(lineAmount(line)))
+        ])
+      );
+    });
+    lines.append(
+      el("tr", {}, [
+        el("td", { colspan: "5" }, "합계"),
+        el("td", { class: "num" }, qty((order.lines || []).reduce((sum, line) => sum + Number(line.qty || 0), 0))),
+        el("td", {}, ""),
+        el("td", { class: "num" }, money(orderAmount(order)))
+      ])
+    );
+    return lines;
   }
 
   function printTable(root, title, columns, rows) {
     root.append(el("h1", {}, title));
-    root.append(el("div", { class: "print-meta" }, el("span", {}, supplier ? "협력사 " + supplierCompany().name : "구매사 (주)한성산업"), el("span", {}, rows.length + "건")));
+    root.append(
+      el(
+        "div",
+        { class: "print-meta" },
+        el("span", {}, supplier ? "협력사 " + supplierCompany().name : "구매사 " + buyerCompanyName()),
+        el("span", {}, rows.length + "건")
+      )
+    );
     const table = el("table");
     table.append(el("tr", {}, columns.map((column) => el("th", { class: column.align === "num" ? "num" : "" }, column.label))));
     rows.forEach((row, index) => {
