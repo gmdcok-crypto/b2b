@@ -15,6 +15,8 @@ USERNAME_PATTERN_MSG = "아이디는 영문·숫자·._- 만 2~80자로 입력�
 
 
 def role_label(role: str) -> str:
+    if role == "admin":
+        return "관리자"
     if role == "approver":
         return "승인자"
     return "담당"
@@ -22,11 +24,13 @@ def role_label(role: str) -> str:
 
 def role_key(label: str) -> str:
     value = (label or "").strip()
+    if value in ("관리자", "admin"):
+        return "admin"
     if value in ("승인자", "approver"):
         return "approver"
     if value in ("담당", "buyer"):
         return "buyer"
-    raise AppError("invalid_role", "역할은 담당 또는 승인자입니다.")
+    raise AppError("invalid_role", "역할은 관리자, 담당 또는 승인자입니다.")
 
 
 def buyer_public(row: BuyerAccount) -> dict[str, str]:
@@ -40,19 +44,23 @@ def buyer_public(row: BuyerAccount) -> dict[str, str]:
 
 
 def ensure_buyer_accounts(db: Session, settings: Settings | None = None) -> None:
-    """환경 변수 계정은 없을 때만 만든다. 이후 변경은 계정 관리 화면에서 한다."""
+    """환경 변수 계정은 없을 때만 만든다. AUTH_USERNAME은 관리자로 시드·승격한다."""
     cfg = settings or get_settings()
     if not cfg.auth_ready():
         return
-    created = False
+    changed = False
     if _create_if_missing(
         db,
         username=cfg.auth_username.strip(),
         display_name=(cfg.auth_display_name.strip() or cfg.auth_username.strip()),
-        role="buyer",
+        role="admin",
         password=cfg.auth_password,
     ):
-        created = True
+        changed = True
+    if _promote_admin(db, cfg.auth_username.strip()):
+        changed = True
+    if _promote_admin(db, "gstec"):
+        changed = True
     if _create_if_missing(
         db,
         username=cfg.auth_approver_username.strip(),
@@ -60,9 +68,31 @@ def ensure_buyer_accounts(db: Session, settings: Settings | None = None) -> None
         role="approver",
         password=cfg.auth_approver_password,
     ):
-        created = True
-    if created:
+        changed = True
+    staff_user = cfg.auth_staff_username.strip()
+    if staff_user:
+        if _create_if_missing(
+            db,
+            username=staff_user,
+            display_name=(cfg.auth_staff_display_name.strip() or staff_user),
+            role="buyer",
+            password=cfg.auth_staff_password,
+        ):
+            changed = True
+    if changed:
         db.commit()
+
+
+def _promote_admin(db: Session, username: str) -> bool:
+    if not username:
+        return False
+    row = db.scalar(select(BuyerAccount).where(func.lower(BuyerAccount.username) == username.lower()))
+    if row is None or row.role == "admin":
+        return False
+    row.role = "admin"
+    row.use_status = "사용"
+    row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    return True
 
 
 def _create_if_missing(db: Session, *, username: str, display_name: str, role: str, password: str) -> bool:
@@ -159,13 +189,13 @@ def ensure_role_coverage(
     role = next_role if next_role is not None else (row.role if row else None)
     use = next_use if next_use is not None else (row.use_status if row else "사용")
     exclude = row.id if row is not None else None
-    buyer_count = active_role_count(db, "buyer", exclude_id=exclude)
+    admin_count = active_role_count(db, "admin", exclude_id=exclude)
     approver_count = active_role_count(db, "approver", exclude_id=exclude)
-    if use == "사용" and role == "buyer":
-        buyer_count += 1
+    if use == "사용" and role == "admin":
+        admin_count += 1
     if use == "사용" and role == "approver":
         approver_count += 1
-    if buyer_count < 1:
-        raise AppError("invalid_role", "사용 중인 담당 계정이 하나 이상 있어야 합니다.")
+    if admin_count < 1:
+        raise AppError("invalid_role", "사용 중인 관리자 계정이 하나 이상 있어야 합니다.")
     if approver_count < 1:
         raise AppError("invalid_role", "사용 중인 승인자 계정이 하나 이상 있어야 합니다.")

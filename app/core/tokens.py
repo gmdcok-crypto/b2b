@@ -61,7 +61,7 @@ def require_buyer(authorization: str | None) -> dict[str, str] | None:
     if not settings.auth_ready():
         return None
     identity = read_token(settings, authorization)
-    if identity.get("role") not in ("buyer", "approver"):
+    if identity.get("role") not in ("admin", "buyer", "approver"):
         raise AppError("forbidden", "구매사 계정으로 로그인하세요.", 403)
     return identity
 
@@ -75,6 +75,10 @@ def require_roles(authorization: str | None, *roles: str) -> dict[str, str] | No
     if identity.get("role") not in roles:
         raise AppError("forbidden", "권한이 없습니다.", 403)
     return identity
+
+
+def require_admin(authorization: str | None) -> dict[str, str] | None:
+    return require_roles(authorization, "admin")
 
 
 def password_matches(given: str, expected: str) -> bool:

@@ -19,7 +19,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 화면은 설치형 PWA다. `manifest.webmanifest`와 `sw.js`가 화면 껍데기를 보관한다. 발주·단가 같은 업무 데이터는 오프라인에서 수정하지 않는다.
 
-인증은 JWT 액세스 토큰이다. 구매사는 `JWT_SECRET`과 최초 담당·승인자 환경 변수가 있을 때 로그인한다. 담당은 `AUTH_USERNAME` / `AUTH_PASSWORD` / `AUTH_DISPLAY_NAME`, 승인자는 `AUTH_APPROVER_USERNAME` / `AUTH_APPROVER_PASSWORD` / `AUTH_APPROVER_DISPLAY_NAME`이며, 없을 때만 `buyer_accounts`에 시드한다. 이후 계정 추가·비밀번호·역할 변경은 구매 포털 **계정** 메뉴에서 한다. 담당은 단가 변경요청을 검토·반려하고, 승인자는 검토완료 건만 최종승인·반려한다. 협력사는 협력사코드와 비밀번호로 로그인한다. 비밀번호가 없으면 로그인 화면에서 설정한다. 구매사가 비밀번호를 초기화하면 기존 로그인은 끊기고, 협력사가 다시 설정한다. 리프레시 토큰은 없다.
+인증은 JWT 액세스 토큰이다. 구매사는 `JWT_SECRET`과 최초 관리자·승인자 환경 변수가 있을 때 로그인한다. 관리자는 `AUTH_USERNAME` / `AUTH_PASSWORD` / `AUTH_DISPLAY_NAME`(예: `gstec`), 승인자는 `AUTH_APPROVER_USERNAME` / `AUTH_APPROVER_PASSWORD` / `AUTH_APPROVER_DISPLAY_NAME`이다. 담당은 선택적으로 `AUTH_STAFF_USERNAME` / `AUTH_STAFF_PASSWORD` / `AUTH_STAFF_DISPLAY_NAME`으로 시드하거나, 관리자가 **계정** 메뉴에서 만든다. 환경 변수 계정은 없을 때만 시드하고, `gstec`과 `AUTH_USERNAME`은 관리자로 승격한다. 계정 관리는 관리자만 한다. 담당은 단가 변경요청을 검토·반려하고, 승인자는 검토완료 건만 최종승인·반려한다. 협력사는 협력사코드와 비밀번호로 로그인한다. 비밀번호가 없으면 로그인 화면에서 설정한다. 구매사가 비밀번호를 초기화하면 기존 로그인은 끊기고, 협력사가 다시 설정한다. 리프레시 토큰은 없다.
 
 - `GET /health`는 데이터베이스를 조회하지 않는다.
 - `DATABASE_URL` 또는 `MYSQL_URL`이 있을 때만 DB 세션을 만든다.

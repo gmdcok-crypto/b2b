@@ -19,20 +19,29 @@ class Settings(BaseSettings):
     auth_username: str = ""
     auth_password: str = ""
     auth_display_name: str = ""
+    auth_staff_username: str = ""
+    auth_staff_password: str = ""
+    auth_staff_display_name: str = ""
     auth_approver_username: str = ""
     auth_approver_password: str = ""
     auth_approver_display_name: str = ""
     upload_dir: str = ""
 
     def auth_ready(self) -> bool:
+        admin = self.auth_username.strip().lower()
+        approver = self.auth_approver_username.strip().lower()
+        staff = self.auth_staff_username.strip().lower()
+        distinct = {name for name in (admin, approver, staff) if name}
+        expected = 2 + (1 if staff else 0)
         return bool(
             self.jwt_secret.strip()
             and len(self.jwt_secret.strip()) >= 32
-            and self.auth_username.strip()
+            and admin
             and self.auth_password
-            and self.auth_approver_username.strip()
+            and approver
             and self.auth_approver_password
-            and self.auth_username.strip().lower() != self.auth_approver_username.strip().lower()
+            and (not staff or self.auth_staff_password)
+            and len(distinct) == expected
         )
 
     def cors_origin_list(self) -> list[str]:

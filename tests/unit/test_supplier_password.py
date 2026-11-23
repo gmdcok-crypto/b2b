@@ -39,9 +39,9 @@ SECRET = "test-secret-value-with-32-bytes!!"
 @pytest.fixture
 def auth_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("JWT_SECRET", SECRET)
-    monkeypatch.setenv("AUTH_USERNAME", "buyer")
+    monkeypatch.setenv("AUTH_USERNAME", "gstec")
     monkeypatch.setenv("AUTH_PASSWORD", "secret-pass")
-    monkeypatch.setenv("AUTH_DISPLAY_NAME", "김구매")
+    monkeypatch.setenv("AUTH_DISPLAY_NAME", "지에스관리")
     monkeypatch.setenv("AUTH_APPROVER_USERNAME", "approver")
     monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "approve-pass")
     monkeypatch.setenv("AUTH_APPROVER_DISPLAY_NAME", "이승인")
@@ -82,7 +82,7 @@ def test_reset_clears_password_and_old_session(auth_env, supplier_client: TestCl
     logged = supplier_client.post("/auth/supplier/login", json={"code": "V-0001", "password": "password1"})
     assert logged.status_code == 200
 
-    buyer = supplier_client.post("/auth/login", json={"username": "buyer", "password": "secret-pass"})
+    buyer = supplier_client.post("/auth/login", json={"username": "gstec", "password": "secret-pass"})
     reset = supplier_client.post(
         "/suppliers/V-0001/password-reset",
         headers={"Authorization": "Bearer " + buyer.json()["access_token"]},
@@ -162,7 +162,7 @@ def test_supplier_token_cannot_reset_password(auth_env, supplier_client: TestCli
     )
     assert denied.status_code == 403
 
-    buyer = supplier_client.post("/auth/login", json={"username": "buyer", "password": "secret-pass"})
+    buyer = supplier_client.post("/auth/login", json={"username": "gstec", "password": "secret-pass"})
     allowed = supplier_client.post(
         "/suppliers/V-0002/password-reset",
         headers={"Authorization": "Bearer " + buyer.json()["access_token"]},

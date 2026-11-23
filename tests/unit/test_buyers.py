@@ -31,9 +31,12 @@ def buyer_client(monkeypatch: pytest.MonkeyPatch):
 
     app.dependency_overrides[db_session] = override
     monkeypatch.setenv("JWT_SECRET", SECRET)
-    monkeypatch.setenv("AUTH_USERNAME", "buyer")
+    monkeypatch.setenv("AUTH_USERNAME", "gstec")
     monkeypatch.setenv("AUTH_PASSWORD", "secret-pass")
-    monkeypatch.setenv("AUTH_DISPLAY_NAME", "김구매")
+    monkeypatch.setenv("AUTH_DISPLAY_NAME", "지에스관리")
+    monkeypatch.setenv("AUTH_STAFF_USERNAME", "buyer")
+    monkeypatch.setenv("AUTH_STAFF_PASSWORD", "staff-pass")
+    monkeypatch.setenv("AUTH_STAFF_DISPLAY_NAME", "김구매")
     monkeypatch.setenv("AUTH_APPROVER_USERNAME", "approver")
     monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "approve-pass")
     monkeypatch.setenv("AUTH_APPROVER_DISPLAY_NAME", "이승인")
@@ -50,15 +53,28 @@ def _login(client: TestClient, username: str, password: str) -> dict[str, str]:
     return {"Authorization": "Bearer " + response.json()["access_token"]}
 
 
+def test_gstec_is_admin(buyer_client: TestClient) -> None:
+    response = buyer_client.post("/auth/login", json={"username": "gstec", "password": "secret-pass"})
+    assert response.status_code == 200
+    assert response.json()["role"] == "admin"
+    assert response.json()["roleLabel"] == "관리자"
+
+
 def test_list_seeded_buyers(buyer_client: TestClient) -> None:
-    headers = _login(buyer_client, "buyer", "secret-pass")
+    headers = _login(buyer_client, "gstec", "secret-pass")
     rows = buyer_client.get("/buyers", headers=headers).json()
-    assert {row["username"] for row in rows} == {"buyer", "approver"}
-    assert {row["role"] for row in rows} == {"담당", "승인자"}
+    assert {row["username"] for row in rows} == {"gstec", "buyer", "approver"}
+    assert {row["role"] for row in rows} == {"관리자", "담당", "승인자"}
+
+
+def test_staff_cannot_manage_accounts(buyer_client: TestClient) -> None:
+    headers = _login(buyer_client, "buyer", "staff-pass")
+    denied = buyer_client.get("/buyers", headers=headers)
+    assert denied.status_code == 403
 
 
 def test_create_and_login_new_buyer(buyer_client: TestClient) -> None:
-    headers = _login(buyer_client, "buyer", "secret-pass")
+    headers = _login(buyer_client, "gstec", "secret-pass")
     created = buyer_client.post(
         "/buyers",
         headers=headers,
@@ -72,7 +88,7 @@ def test_create_and_login_new_buyer(buyer_client: TestClient) -> None:
 
 
 def test_cannot_stop_last_approver(buyer_client: TestClient) -> None:
-    headers = _login(buyer_client, "buyer", "secret-pass")
+    headers = _login(buyer_client, "gstec", "secret-pass")
     denied = buyer_client.patch(
         "/buyers/approver",
         headers=headers,
@@ -82,8 +98,19 @@ def test_cannot_stop_last_approver(buyer_client: TestClient) -> None:
     assert denied.json()["code"] == "invalid_role"
 
 
+def test_cannot_stop_last_admin(buyer_client: TestClient) -> None:
+    headers = _login(buyer_client, "gstec", "secret-pass")
+    denied = buyer_client.patch(
+        "/buyers/gstec",
+        headers=headers,
+        json={"username": "gstec", "name": "지에스관리", "role": "담당", "use": "사용", "password": ""},
+    )
+    assert denied.status_code == 400
+    assert denied.json()["code"] == "invalid_role"
+
+
 def test_change_password_and_role(buyer_client: TestClient) -> None:
-    headers = _login(buyer_client, "approver", "approve-pass")
+    headers = _login(buyer_client, "gstec", "secret-pass")
     buyer_client.post(
         "/buyers",
         headers=headers,
@@ -107,14 +134,14 @@ def test_change_password_and_role(buyer_client: TestClient) -> None:
 
 
 def test_env_password_does_not_overwrite_managed_password(buyer_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    headers = _login(buyer_client, "buyer", "secret-pass")
+    headers = _login(buyer_client, "gstec", "secret-pass")
     buyer_client.post(
-        "/buyers/buyer/password",
+        "/buyers/gstec/password",
         headers=headers,
         json={"password": "changed-pass"},
     )
     monkeypatch.setenv("AUTH_PASSWORD", "secret-pass")
     get_settings.cache_clear()
-    assert buyer_client.post("/auth/login", json={"username": "buyer", "password": "secret-pass"}).status_code == 401
-    again = buyer_client.post("/auth/login", json={"username": "buyer", "password": "changed-pass"})
+    assert buyer_client.post("/auth/login", json={"username": "gstec", "password": "secret-pass"}).status_code == 401
+    again = buyer_client.post("/auth/login", json={"username": "gstec", "password": "changed-pass"})
     assert again.status_code == 200

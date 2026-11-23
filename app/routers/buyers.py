@@ -1,4 +1,4 @@
-"""구매 담당·승인자 계정 관리."""
+"""구매 관리자·담당·승인자 계정 관리. 계정 CRUD는 관리자만 한다."""
 
 from datetime import datetime, timezone
 
@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.core.tokens import require_buyer
+from app.core.tokens import require_admin
 from app.models.buyer import BuyerAccount
 from app.routers.suppliers import db_session
 from app.services.audit import actor_name, add_audit, audit_public
@@ -42,11 +42,13 @@ class PasswordBody(BaseModel):
 
 
 def require_manager(authorization: str | None, db: Session) -> tuple[str, BuyerAccount | None]:
-    identity = require_buyer(authorization)
+    identity = require_admin(authorization)
     if identity is None:
         ensure_buyer_accounts(db)
         return actor_name(authorization), None
     account = find_buyer(db, identity["username"])
+    if account.role != "admin":
+        raise AppError("forbidden", "관리자만 계정을 관리할 수 있습니다.", 403)
     return account.display_name, account
 
 
@@ -62,7 +64,7 @@ def list_buyers(
     authorization: str | None = Header(default=None),
     db: Session = Depends(db_session),
 ) -> list[dict[str, str]]:
-    require_buyer(authorization)
+    require_manager(authorization, db)
     ensure_buyer_accounts(db)
     rows = db.scalars(select(BuyerAccount).order_by(BuyerAccount.username)).all()
     return [buyer_public(row) for row in rows]
@@ -156,4 +158,8 @@ def change_buyer_password(
 
 
 def role_key_to_note(role: str) -> str:
-    return "승인자" if role == "approver" else "담당"
+    if role == "admin":
+        return "관리자"
+    if role == "approver":
+        return "승인자"
+    return "담당"

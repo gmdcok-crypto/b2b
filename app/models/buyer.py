@@ -1,7 +1,7 @@
 """구매사 로그인 계정.
 
-담당(buyer)과 승인자(approver)를 나눈다. 비밀번호는 해시로만 저장한다.
-최초 계정은 환경 변수로 시드한다.
+관리자(admin), 담당(buyer), 승인자(approver)를 나눈다.
+비밀번호는 해시로만 저장한다. 최초 계정은 환경 변수로 시드한다.
 """
 
 from datetime import datetime
@@ -11,13 +11,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 
-BUYER_ROLES = ("buyer", "approver")
+BUYER_ROLES = ("admin", "buyer", "approver")
 
 
 class BuyerAccount(Base):
     __tablename__ = "buyer_accounts"
     __table_args__ = (
-        CheckConstraint("role IN ('buyer', 'approver')", name="ck_buyer_accounts_role"),
+        CheckConstraint("role IN ('admin', 'buyer', 'approver')", name="ck_buyer_accounts_role"),
         CheckConstraint("use_status IN ('사용', '중지')", name="ck_buyer_accounts_use_status"),
     )
 

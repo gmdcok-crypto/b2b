@@ -38,9 +38,12 @@ def trade_client():
 @pytest.fixture
 def auth_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("JWT_SECRET", SECRET)
-    monkeypatch.setenv("AUTH_USERNAME", "buyer")
+    monkeypatch.setenv("AUTH_USERNAME", "gstec")
     monkeypatch.setenv("AUTH_PASSWORD", "secret-pass")
-    monkeypatch.setenv("AUTH_DISPLAY_NAME", "김구매")
+    monkeypatch.setenv("AUTH_DISPLAY_NAME", "지에스관리")
+    monkeypatch.setenv("AUTH_STAFF_USERNAME", "buyer")
+    monkeypatch.setenv("AUTH_STAFF_PASSWORD", "secret-pass")
+    monkeypatch.setenv("AUTH_STAFF_DISPLAY_NAME", "김구매")
     monkeypatch.setenv("AUTH_APPROVER_USERNAME", "approver")
     monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "approve-pass")
     monkeypatch.setenv("AUTH_APPROVER_DISPLAY_NAME", "이승인")

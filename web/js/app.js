@@ -70,9 +70,13 @@
   }
 
   function openModule(name) {
+    if (name === "accounts" && !isBuyerAdmin()) {
+      toast("관리자만 계정을 관리할 수 있습니다.");
+      name = "orders";
+    }
     state.module = name;
     state.message = "";
-    state.sortKey = name === "orders" ? "date" : name === "audit" ? "at" : "code";
+    state.sortKey = name === "orders" ? "date" : name === "audit" ? "at" : name === "accounts" ? "username" : "code";
     state.sortDir = name === "prices" || name === "items" || name === "vendors" || name === "accounts" ? "asc" : "desc";
     if (!supplier && name === "prices" && pendingPriceRequests() > 0) {
       state.filters = { status: isBuyerApprover() ? "검토완료" : "승인대기" };
@@ -316,7 +320,7 @@
       fetchList("/prices"),
       fetchList("/items"),
       fetchList("/suppliers"),
-      supplier ? Promise.resolve([]) : fetchList("/buyers"),
+      supplier || !isBuyerAdmin() ? Promise.resolve([]) : fetchList("/buyers"),
       fetchList("/audit")
     ]).then(([orders, prices, items, vendors, accounts, audit]) => {
       if (supplier && !readAccessToken()) return;
@@ -353,12 +357,35 @@
     });
   }
 
+  function isBuyerAdmin() {
+    return !supplier && state.buyerRole === "admin";
+  }
+
   function isBuyerStaff() {
     return !supplier && state.buyerRole === "buyer";
   }
 
   function isBuyerApprover() {
     return !supplier && state.buyerRole === "approver";
+  }
+
+  function buyerRoleLabel(role) {
+    if (role === "admin") return "관리자";
+    if (role === "approver") return "승인자";
+    return "담당";
+  }
+
+  function buyerRoleFoot(role) {
+    if (role === "admin") return "구매 관리자";
+    if (role === "approver") return "구매 승인자";
+    return "구매 담당";
+  }
+
+  function syncAccountsNav() {
+    const accountsNav = $("nav-accounts");
+    if (!accountsNav || supplier) return;
+    accountsNav.hidden = !isBuyerAdmin();
+    if (!isBuyerAdmin() && state.module === "accounts") openModule("orders");
   }
 
   function canRejectPrice(price) {
@@ -426,12 +453,14 @@
     if (loginTitle) loginTitle.textContent = "(주)지에스테크 구매 포털";
     const userLabel = document.querySelector("#login-user-label span");
     if (userLabel) userLabel.textContent = "아이디";
+    const accountsNav = $("nav-accounts");
+    if (accountsNav) accountsNav.hidden = true;
     const help = $("login-help");
     if (help) {
       help.replaceChildren(
-        el("p", {}, "1. 담당 또는 승인자 아이디로 로그인합니다."),
-        el("p", {}, "2. 담당은 변경요청 검토·반려, 승인자는 최종승인·반려만 합니다."),
-        el("p", {}, "3. 계정 메뉴에서 담당·승인자 계정과 비밀번호를 관리합니다."),
+        el("p", {}, "1. 관리자·담당·승인자 아이디로 로그인합니다."),
+        el("p", {}, "2. 담당은 검토·반려, 승인자는 최종승인·반려, 관리자는 계정·마스터를 관리합니다."),
+        el("p", {}, "3. 계정 메뉴는 관리자만 사용할 수 있습니다."),
         el("p", {}, "4. 로그인이 안 되면 관리자에게 문의하세요.")
       );
     }
@@ -503,7 +532,7 @@
       );
     } else if (state.module === "accounts") {
       box.append(
-        field("역할", select("role", ["전체", "담당", "승인자"], "전체")),
+        field("역할", select("role", ["전체", "관리자", "담당", "승인자"], "전체")),
         field("사용", select("use", ["전체", "사용", "중지"], "전체")),
         field("검색", searchInput("q", "아이디, 이름"))
       );
@@ -918,7 +947,7 @@
         [
           { label: "아이디", key: "username", edit: !!record.draft },
           { label: "사용", key: "use", edit: !record.draft, options: ["사용", "중지"] },
-          { label: "역할", key: "role", edit: true, options: ["담당", "승인자"] },
+          { label: "역할", key: "role", edit: true, options: ["관리자", "담당", "승인자"] },
           { label: "이름", key: "name", edit: true }
         ]
       ];
@@ -1196,8 +1225,8 @@
       toast("이름을 입력하세요.");
       return;
     }
-    if (account.role !== "담당" && account.role !== "승인자") {
-      toast("역할은 담당 또는 승인자입니다.");
+    if (account.role !== "관리자" && account.role !== "담당" && account.role !== "승인자") {
+      toast("역할은 관리자, 담당 또는 승인자입니다.");
       return;
     }
     const password = String(account.password || "");
@@ -1235,13 +1264,14 @@
         if (body.audit) data.audit.unshift(body.audit);
         if (account.username === state.buyerUsername) {
           state.buyerName = saved.name || state.buyerName;
-          state.buyerRole = saved.roleKey || (saved.role === "승인자" ? "approver" : "buyer");
+          state.buyerRole = saved.roleKey || (saved.role === "관리자" ? "admin" : saved.role === "승인자" ? "approver" : "buyer");
           const nameNode = $("session-name");
           if (nameNode) nameNode.textContent = state.buyerName;
           const role = document.querySelector(".session-key");
-          if (role) role.textContent = saved.role || "담당";
+          if (role) role.textContent = saved.role || buyerRoleLabel(state.buyerRole);
           const foot = document.querySelector(".nav-foot");
-          if (foot) foot.textContent = state.buyerRole === "approver" ? "구매 승인자" : "구매 담당";
+          if (foot) foot.textContent = buyerRoleFoot(state.buyerRole);
+          syncAccountsNav();
         }
         paintList();
         paintDetail();
@@ -2142,7 +2172,7 @@
     return el("span", { class: "state " + stateClass(value) }, value || "");
   }
   function stateClass(value) {
-    if (["확정", "적용중", "승인", "사용", "등록", "인증", "담당", "승인자"].includes(value)) return "ok";
+    if (["확정", "적용중", "승인", "사용", "등록", "인증", "관리자", "담당", "승인자"].includes(value)) return "ok";
     if (["승인대기", "검토완료", "변경요청", "검토", "미인증"].includes(value)) return "wait";
     if (["취소", "반려", "중지"].includes(value)) return "stop";
     if (["종료"].includes(value)) return "mute";
@@ -2335,6 +2365,7 @@
     if (!supplier && foot) foot.textContent = "구매 담당";
     const company = document.querySelector(".session strong");
     if (supplier && company) company.textContent = "";
+    syncAccountsNav();
     showLogin();
   }
 
@@ -2367,9 +2398,10 @@
       state.buyerName = me.name || me.username || "";
       state.buyerUsername = me.username || "";
       const role = document.querySelector(".session-key");
-      if (role) role.textContent = me.roleLabel || (state.buyerRole === "approver" ? "승인자" : "담당");
+      if (role) role.textContent = me.roleLabel || buyerRoleLabel(state.buyerRole);
       const foot = document.querySelector(".nav-foot");
-      if (foot) foot.textContent = state.buyerRole === "approver" ? "구매 승인자" : "구매 담당";
+      if (foot) foot.textContent = buyerRoleFoot(state.buyerRole);
+      syncAccountsNav();
     }
     loadSuppliers();
     finishBoot();

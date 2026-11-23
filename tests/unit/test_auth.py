@@ -36,9 +36,9 @@ def auth_client(monkeypatch: pytest.MonkeyPatch):
 
     app.dependency_overrides[db_session] = override
     monkeypatch.setenv("JWT_SECRET", SECRET)
-    monkeypatch.setenv("AUTH_USERNAME", "buyer")
+    monkeypatch.setenv("AUTH_USERNAME", "gstec")
     monkeypatch.setenv("AUTH_PASSWORD", "secret-pass")
-    monkeypatch.setenv("AUTH_DISPLAY_NAME", "김구매")
+    monkeypatch.setenv("AUTH_DISPLAY_NAME", "지에스관리")
     monkeypatch.setenv("AUTH_APPROVER_USERNAME", "approver")
     monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "approve-pass")
     monkeypatch.setenv("AUTH_APPROVER_DISPLAY_NAME", "이승인")
@@ -94,22 +94,22 @@ def test_login_rejects_missing_configuration(monkeypatch) -> None:
 
 
 def test_login_and_me(auth_client: TestClient) -> None:
-    denied = auth_client.post("/auth/login", json={"username": "buyer", "password": "wrong"})
+    denied = auth_client.post("/auth/login", json={"username": "gstec", "password": "wrong"})
     assert denied.status_code == 401
-    response = auth_client.post("/auth/login", json={"username": "buyer", "password": "secret-pass"})
+    response = auth_client.post("/auth/login", json={"username": "gstec", "password": "secret-pass"})
     assert response.status_code == 200
     body = response.json()
     assert body["token_type"] == "bearer"
-    assert body["name"] == "김구매"
-    assert body["role"] == "buyer"
-    assert body["roleLabel"] == "담당"
+    assert body["name"] == "지에스관리"
+    assert body["role"] == "admin"
+    assert body["roleLabel"] == "관리자"
     payload = jwt.decode(body["access_token"], SECRET, algorithms=["HS256"])
-    assert payload["sub"] == "buyer"
-    assert payload["role"] == "buyer"
+    assert payload["sub"] == "gstec"
+    assert payload["role"] == "admin"
     me = auth_client.get("/auth/me", headers={"Authorization": "Bearer " + body["access_token"]})
     assert me.status_code == 200
-    assert me.json()["username"] == "buyer"
-    assert me.json()["role"] == "buyer"
+    assert me.json()["username"] == "gstec"
+    assert me.json()["role"] == "admin"
     missing = auth_client.get("/auth/me")
     assert missing.status_code == 401
 
