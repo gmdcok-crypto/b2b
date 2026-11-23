@@ -1,4 +1,8 @@
-"""구매 계정 시드와 조회."""
+"""구매 계정 시드와 조회.
+
+일상 계정·비밀번호·역할은 DB와 계정 메뉴에서만 다룬다.
+환경 변수 시드는 buyer_accounts가 비어 있을 때만 한 번 넣는다.
+"""
 
 from datetime import datetime, timezone
 
@@ -43,35 +47,36 @@ def buyer_public(row: BuyerAccount) -> dict[str, str]:
     }
 
 
+def account_count(db: Session) -> int:
+    return int(db.scalar(select(func.count()).select_from(BuyerAccount)) or 0)
+
+
 def ensure_buyer_accounts(db: Session, settings: Settings | None = None) -> None:
-    """환경 변수 계정은 없을 때만 만든다. AUTH_USERNAME은 관리자로 시드·승격한다."""
     cfg = settings or get_settings()
     if not cfg.auth_ready():
         return
     changed = False
-    if _create_if_missing(
-        db,
-        username=cfg.auth_username.strip(),
-        display_name=(cfg.auth_display_name.strip() or cfg.auth_username.strip()),
-        role="admin",
-        password=cfg.auth_password,
-    ):
-        changed = True
-    if _promote_admin(db, cfg.auth_username.strip()):
-        changed = True
-    if _promote_admin(db, "gstec"):
-        changed = True
-    if _create_if_missing(
-        db,
-        username=cfg.auth_approver_username.strip(),
-        display_name=(cfg.auth_approver_display_name.strip() or cfg.auth_approver_username.strip()),
-        role="approver",
-        password=cfg.auth_approver_password,
-    ):
-        changed = True
-    staff_user = cfg.auth_staff_username.strip()
-    if staff_user:
+    if account_count(db) == 0:
+        if not cfg.bootstrap_ready():
+            return
         if _create_if_missing(
+            db,
+            username=cfg.auth_username.strip(),
+            display_name=(cfg.auth_display_name.strip() or cfg.auth_username.strip()),
+            role="admin",
+            password=cfg.auth_password,
+        ):
+            changed = True
+        if _create_if_missing(
+            db,
+            username=cfg.auth_approver_username.strip(),
+            display_name=(cfg.auth_approver_display_name.strip() or cfg.auth_approver_username.strip()),
+            role="approver",
+            password=cfg.auth_approver_password,
+        ):
+            changed = True
+        staff_user = cfg.auth_staff_username.strip()
+        if staff_user and _create_if_missing(
             db,
             username=staff_user,
             display_name=(cfg.auth_staff_display_name.strip() or staff_user),
@@ -79,6 +84,8 @@ def ensure_buyer_accounts(db: Session, settings: Settings | None = None) -> None
             password=cfg.auth_staff_password,
         ):
             changed = True
+    if _promote_admin(db, "gstec"):
+        changed = True
     if changed:
         db.commit()
 
@@ -118,6 +125,12 @@ def _create_if_missing(db: Session, *, username: str, display_name: str, role: s
 def authenticate_buyer(db: Session, username: str, password: str) -> BuyerAccount:
     settings = get_settings()
     ensure_buyer_accounts(db, settings)
+    if account_count(db) == 0:
+        raise AppError(
+            "no_accounts",
+            "구매 계정이 없습니다. Railway에 최초 관리자·승인자 시드 변수를 한 번만 넣으세요.",
+            503,
+        )
     row = db.scalar(select(BuyerAccount).where(BuyerAccount.username == username.strip()))
     if row is None or row.use_status != "사용":
         raise AppError("unauthorized", "아이디 또는 비밀번호가 올바르지 않습니다.", 401)
@@ -189,12 +202,15 @@ def ensure_role_coverage(
     role = next_role if next_role is not None else (row.role if row else None)
     use = next_use if next_use is not None else (row.use_status if row else "사용")
     exclude = row.id if row is not None else None
+    existing = account_count(db) if exclude is None else max(account_count(db) - 1, 0)
     admin_count = active_role_count(db, "admin", exclude_id=exclude)
     approver_count = active_role_count(db, "approver", exclude_id=exclude)
     if use == "사용" and role == "admin":
         admin_count += 1
     if use == "사용" and role == "approver":
         approver_count += 1
+    if existing == 0 and use == "사용" and role == "admin":
+        return
     if admin_count < 1:
         raise AppError("invalid_role", "사용 중인 관리자 계정이 하나 이상 있어야 합니다.")
     if approver_count < 1:

@@ -50,6 +50,19 @@ def auth_client(monkeypatch: pytest.MonkeyPatch):
     _reload_settings()
 
 
+def test_auth_status_needs_only_jwt(monkeypatch) -> None:
+    monkeypatch.setenv("JWT_SECRET", SECRET)
+    monkeypatch.setenv("AUTH_USERNAME", "")
+    monkeypatch.setenv("AUTH_PASSWORD", "")
+    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "")
+    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "")
+    _reload_settings()
+    response = TestClient(app).get("/auth/status")
+    assert response.status_code == 200
+    assert response.json() == {"configured": True}
+    _reload_settings()
+
+
 def test_auth_status_unconfigured(monkeypatch) -> None:
     monkeypatch.setenv("JWT_SECRET", "")
     monkeypatch.setenv("AUTH_USERNAME", "")
@@ -63,7 +76,7 @@ def test_auth_status_unconfigured(monkeypatch) -> None:
     _reload_settings()
 
 
-def test_login_rejects_missing_configuration(monkeypatch) -> None:
+def test_login_rejects_missing_jwt(monkeypatch) -> None:
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -81,12 +94,8 @@ def test_login_rejects_missing_configuration(monkeypatch) -> None:
 
     app.dependency_overrides[db_session] = override
     monkeypatch.setenv("JWT_SECRET", "")
-    monkeypatch.setenv("AUTH_USERNAME", "")
-    monkeypatch.setenv("AUTH_PASSWORD", "")
-    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "")
-    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "")
     _reload_settings()
-    response = TestClient(app).post("/auth/login", json={"username": "buyer", "password": "secret"})
+    response = TestClient(app).post("/auth/login", json={"username": "gstec", "password": "secret"})
     assert response.status_code == 503
     assert response.json()["code"] == "auth_not_configured"
     app.dependency_overrides.clear()
@@ -120,6 +129,36 @@ def test_approver_login(auth_client: TestClient) -> None:
     assert response.json()["role"] == "approver"
     assert response.json()["roleLabel"] == "승인자"
     assert response.json()["name"] == "이승인"
+
+
+def test_login_without_seed_reports_no_accounts(monkeypatch: pytest.MonkeyPatch) -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def override():
+        db = sessions()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[db_session] = override
+    monkeypatch.setenv("JWT_SECRET", SECRET)
+    monkeypatch.setenv("AUTH_USERNAME", "")
+    monkeypatch.setenv("AUTH_PASSWORD", "")
+    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "")
+    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "")
+    _reload_settings()
+    response = TestClient(app).post("/auth/login", json={"username": "gstec", "password": "secret-pass"})
+    assert response.status_code == 503
+    assert response.json()["code"] == "no_accounts"
+    app.dependency_overrides.clear()
+    _reload_settings()
 
 
 def test_shell_is_installable() -> None:

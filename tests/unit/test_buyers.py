@@ -141,7 +141,11 @@ def test_env_password_does_not_overwrite_managed_password(buyer_client: TestClie
         json={"password": "changed-pass"},
     )
     monkeypatch.setenv("AUTH_PASSWORD", "secret-pass")
+    monkeypatch.setenv("AUTH_USERNAME", "")
+    monkeypatch.setenv("AUTH_APPROVER_USERNAME", "")
+    monkeypatch.setenv("AUTH_APPROVER_PASSWORD", "")
     get_settings.cache_clear()
     assert buyer_client.post("/auth/login", json={"username": "gstec", "password": "secret-pass"}).status_code == 401
     again = buyer_client.post("/auth/login", json={"username": "gstec", "password": "changed-pass"})
     assert again.status_code == 200
+    assert again.json()["role"] == "admin"

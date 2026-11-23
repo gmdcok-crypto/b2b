@@ -458,10 +458,10 @@
     const help = $("login-help");
     if (help) {
       help.replaceChildren(
-        el("p", {}, "1. 관리자·담당·승인자 아이디로 로그인합니다."),
+        el("p", {}, "1. 관리자·담당·승인자 아이디로 로그인합니다. 계정은 DB에서 관리합니다."),
         el("p", {}, "2. 담당은 검토·반려, 승인자는 최종승인·반려, 관리자는 계정·마스터를 관리합니다."),
         el("p", {}, "3. 계정 메뉴는 관리자만 사용할 수 있습니다."),
-        el("p", {}, "4. 로그인이 안 되면 관리자에게 문의하세요.")
+        el("p", {}, "4. 최초 계정이 없으면 JWT_SECRET과 시드 변수를 한 번만 넣으세요.")
       );
     }
   }
@@ -2318,14 +2318,14 @@
           return;
         }
         clearAccessToken();
-        if (supplier) {
-          state.supplierCode = "";
-          showLogin();
-          toast("인증 설정이 없습니다. 관리자에게 문의하세요.");
-          return;
-        }
-        loadSuppliers();
-        finishBoot();
+        state.supplierCode = "";
+        state.buyerRole = "";
+        state.buyerName = "";
+        state.buyerUsername = "";
+        showLogin();
+        toast(supplier
+          ? "인증 설정이 없습니다. 관리자에게 문의하세요."
+          : "인증 설정이 없습니다. Railway에 JWT_SECRET을 넣으세요.");
       });
   }
 
@@ -2355,16 +2355,15 @@
     state.buyerRole = "";
     state.buyerName = "";
     state.buyerUsername = "";
-    const button = $("logout");
-    if (button) button.hidden = true;
+    setLogoutVisible(false);
     const name = $("session-name");
-    if (name) name.textContent = supplier ? "" : "김구매";
+    if (name) name.textContent = "";
     const role = document.querySelector(".session-key");
     if (!supplier && role) role.textContent = "구매사";
     const foot = document.querySelector(".nav-foot");
     if (!supplier && foot) foot.textContent = "구매 담당";
     const company = document.querySelector(".session strong");
-    if (supplier && company) company.textContent = "";
+    if (company) company.textContent = supplier ? "" : "(주)지에스테크";
     syncAccountsNav();
     showLogin();
   }
@@ -2373,8 +2372,7 @@
     setSupplierSetup(false);
     const panel = $("login");
     if (panel) panel.hidden = false;
-    const button = $("logout");
-    if (button) button.hidden = true;
+    setLogoutVisible(false);
     finishBoot();
     const input = document.querySelector("#login-form input[name=username]");
     if (input) input.focus();
@@ -2385,8 +2383,7 @@
     if (panel) panel.hidden = true;
     const name = $("session-name");
     if (name) name.textContent = me.name || me.username || "";
-    const button = $("logout");
-    if (button) button.hidden = false;
+    setLogoutVisible(true);
     const error = $("login-error");
     if (error) error.textContent = "";
     if (supplier) {
@@ -2405,6 +2402,11 @@
     }
     loadSuppliers();
     finishBoot();
+  }
+
+  function setLogoutVisible(on) {
+    const button = $("logout");
+    if (button) button.hidden = !on;
   }
 
   function logoutSession() {
@@ -2469,7 +2471,10 @@
 
   function buyerAuthMessage(payload, fallback) {
     if (payload && payload.code === "auth_not_configured") {
-      return "인증 설정이 없습니다. 담당·승인자 계정을 Railway에 넣으세요.";
+      return "인증 설정이 없습니다. Railway에 JWT_SECRET을 넣으세요.";
+    }
+    if (payload && payload.code === "no_accounts") {
+      return "구매 계정이 없습니다. 최초 관리자·승인자 시드 변수를 한 번만 넣으세요.";
     }
     if (payload && payload.code === "unauthorized") {
       return "아이디 또는 비밀번호가 올바르지 않습니다.";
@@ -2560,7 +2565,7 @@
       return "사용 중지된 협력사입니다. 구매사에 문의하세요.";
     }
     if (payload && payload.code === "auth_not_configured") {
-      return "인증 설정이 없습니다. Railway에 JWT_SECRET과 담당·승인자 계정을 넣으세요.";
+      return "인증 설정이 없습니다. Railway에 JWT_SECRET을 넣으세요.";
     }
     if (payload && payload.code === "password_already_set") {
       return "이미 비밀번호가 설정되어 있습니다. 설정한 비밀번호로 로그인하세요.";

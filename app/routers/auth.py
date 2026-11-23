@@ -31,7 +31,7 @@ def auth_status() -> dict[str, bool]:
 def login(body: LoginRequest, db: Session = Depends(db_session)) -> dict[str, str | int]:
     settings = get_settings()
     if not settings.auth_ready():
-        raise AppError("auth_not_configured", "인증 설정이 없습니다.", 503)
+        raise AppError("auth_not_configured", "JWT_SECRET을 설정하세요.", 503)
     account = authenticate_buyer(db, body.username, body.password)
     stamp = password_stamp(account.password_set_at)
     token, expires_in = issue_token(

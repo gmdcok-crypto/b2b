@@ -28,21 +28,21 @@ class Settings(BaseSettings):
     upload_dir: str = ""
 
     def auth_ready(self) -> bool:
+        """JWT만 있으면 인증을 켠다. 구매 계정은 DB(buyer_accounts)에서 관리한다."""
+        return bool(self.jwt_secret.strip() and len(self.jwt_secret.strip()) >= 32)
+
+    def bootstrap_ready(self) -> bool:
+        """DB가 비어 있을 때만 쓰는 최초 시드 변수 준비 여부."""
         admin = self.auth_username.strip().lower()
         approver = self.auth_approver_username.strip().lower()
+        if not admin or not self.auth_password or not approver or not self.auth_approver_password:
+            return False
+        if admin == approver:
+            return False
         staff = self.auth_staff_username.strip().lower()
-        distinct = {name for name in (admin, approver, staff) if name}
-        expected = 2 + (1 if staff else 0)
-        return bool(
-            self.jwt_secret.strip()
-            and len(self.jwt_secret.strip()) >= 32
-            and admin
-            and self.auth_password
-            and approver
-            and self.auth_approver_password
-            and (not staff or self.auth_staff_password)
-            and len(distinct) == expected
-        )
+        if staff and (staff in (admin, approver) or not self.auth_staff_password):
+            return False
+        return True
 
     def cors_origin_list(self) -> list[str]:
         defaults = [
