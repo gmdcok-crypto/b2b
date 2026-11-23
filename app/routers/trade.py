@@ -783,12 +783,10 @@ async def decide_price(
         db.refresh(audit)
         return envelope(published_price(db, row), audit)
 
-    if row.status == "승인대기":
-        require_roles(authorization, "buyer")
-    elif row.status == "검토완료":
-        require_roles(authorization, "buyer", "approver")
-    else:
-        raise AppError("invalid_status", "반려할 수 있는 상태가 아닙니다.")
+    # 반려는 승인자만, 검토완료 건만 처리한다. 담당은 검토만 한다.
+    require_roles(authorization, "approver")
+    if row.status != "검토완료":
+        raise AppError("invalid_status", "검토 완료된 단가만 반려할 수 있습니다.")
     user = actor_name(authorization)
     rejected = after
     row.request_amount = None

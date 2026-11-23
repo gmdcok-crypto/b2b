@@ -321,6 +321,7 @@ def test_price_review_and_approve_roles(auth_env, trade_client: TestClient) -> N
 
 def test_price_reject_keeps_before_and_after_same(auth_env, trade_client: TestClient) -> None:
     buyer = _login(trade_client, "buyer", "secret-pass")
+    approver = _ensure_approver(trade_client)
     trade_client.post("/suppliers", headers=buyer, json={"code": "V-0001", "name": "한빛금속"})
     trade_client.post(
         "/items",
@@ -340,7 +341,11 @@ def test_price_reject_keeps_before_and_after_same(auth_env, trade_client: TestCl
         data={"request": "1500"},
         files={"file": ("공문.pdf", b"%PDF-1.4 x", "application/pdf")},
     )
-    rejected = trade_client.post("/prices/" + price_id + "/decide", headers=buyer, data={"type": "반려"})
+    denied_staff = trade_client.post("/prices/" + price_id + "/decide", headers=buyer, data={"type": "반려"})
+    assert denied_staff.status_code == 403
+    reviewed = trade_client.post("/prices/" + price_id + "/decide", headers=buyer, data={"type": "검토"})
+    assert reviewed.json()["record"]["status"] == "검토완료"
+    rejected = trade_client.post("/prices/" + price_id + "/decide", headers=approver, data={"type": "반려"})
     assert rejected.status_code == 200
     record = rejected.json()["record"]
     assert record["status"] == "적용중"

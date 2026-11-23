@@ -396,10 +396,7 @@
   }
 
   function canRejectPrice(price) {
-    if (!price) return false;
-    if (isBuyerStaff() && (price.status === "승인대기" || price.status === "검토완료")) return true;
-    if (isBuyerApprover() && price.status === "검토완료") return true;
-    return false;
+    return !!(isBuyerApprover() && price && price.status === "검토완료");
   }
 
   function pendingPriceRequests() {
@@ -466,7 +463,7 @@
     if (help) {
       help.replaceChildren(
         el("p", {}, "1. 관리자·담당·승인자 아이디로 로그인합니다. 계정은 DB에서 관리합니다."),
-        el("p", {}, "2. 단가 변경요청은 협력사가 하고, 담당은 검토·반려, 승인자는 결제 공문 첨부 후 최종승인·반려합니다."),
+        el("p", {}, "2. 단가 변경요청은 협력사가 하고, 담당은 검토, 승인자는 결제 공문 첨부 후 최종승인·반려합니다."),
         el("p", {}, "3. 계정 메뉴는 관리자만 사용할 수 있습니다."),
         el("p", {}, "4. 최초 관리자만 시드하고, 담당·승인자는 계정 메뉴에서 만듭니다.")
       );
@@ -2173,7 +2170,7 @@
     else if (record && state.module === "vendors") left += "  ·  " + (record.code || "신규") + "  ·  " + (record.name || "");
     else if (record && state.module === "accounts") left += "  ·  " + (record.username || "신규") + "  ·  " + (record.role || "");
     const message = pending > 0
-      ? pendingPriceLabel() + " " + pending + "건 · 단가에서 " + (isBuyerApprover() ? "승인·반려" : "검토·반려") + "하세요"
+      ? pendingPriceLabel() + " " + pending + "건 · 단가에서 " + (isBuyerApprover() ? "승인·반려" : "검토") + "하세요"
       : state.message;
     $("statusbar").replaceChildren(
       el("span", {}, left),
