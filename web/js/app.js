@@ -1,7 +1,7 @@
 (function () {
   const supplier = isSupplierPortal();
-  const data = { orders: [], prices: [], items: [], vendors: [], audit: [] };
-  const TITLES = { orders: "발주", prices: "단가", items: "품목", vendors: "협력사", audit: "이력" };
+  const data = { orders: [], prices: [], items: [], vendors: [], accounts: [], audit: [] };
+  const TITLES = { orders: "발주", prices: "단가", items: "품목", vendors: "협력사", accounts: "계정", audit: "이력" };
   const ITEM_GROUPS = ["원자재", "기자재", "가공품", "포장", "보전", "사출", "소모품"];
   const ITEM_UNITS = ["EA", "M", "KG", "BOX"];
   let itemSeq = 1;
@@ -19,6 +19,7 @@
     supplierCode: "",
     buyerRole: "",
     buyerName: "",
+    buyerUsername: "",
     api: "API 확인 중",
     timer: 0,
     filters: {}
@@ -72,7 +73,7 @@
     state.module = name;
     state.message = "";
     state.sortKey = name === "orders" ? "date" : name === "audit" ? "at" : "code";
-    state.sortDir = name === "prices" || name === "items" || name === "vendors" ? "asc" : "desc";
+    state.sortDir = name === "prices" || name === "items" || name === "vendors" || name === "accounts" ? "asc" : "desc";
     if (!supplier && name === "prices" && pendingPriceRequests() > 0) {
       state.filters = { status: isBuyerApprover() ? "검토완료" : "승인대기" };
     } else {
@@ -203,6 +204,30 @@
         { label: "인쇄", enable: () => !!vendor && !vendor.draft, run: printCurrent }
       ];
     }
+    if (state.module === "accounts") {
+      const account = selectedAccount();
+      const inUse = !account || account.use !== "중지";
+      return [
+        { label: "조회", kind: "primary", run: () => toast(countText(filtered().length)) },
+        "|",
+        { label: "신규", run: newAccount },
+        { label: "저장", enable: () => !!account, run: saveAccount },
+        "|",
+        {
+          label: inUse ? "사용중지" : "사용재개",
+          kind: inUse ? "danger" : "",
+          enable: () => account && !account.draft,
+          run: () => setAccountUse(inUse ? "중지" : "사용")
+        },
+        {
+          label: "비밀번호 변경",
+          enable: () => account && !account.draft,
+          run: changeAccountPassword
+        },
+        "|",
+        { label: "인쇄", enable: () => !!account && !account.draft, run: printCurrent }
+      ];
+    }
     return [
       { label: "조회", kind: "primary", run: () => toast(countText(filtered().length)) },
       "|",
@@ -291,14 +316,16 @@
       fetchList("/prices"),
       fetchList("/items"),
       fetchList("/suppliers"),
+      supplier ? Promise.resolve([]) : fetchList("/buyers"),
       fetchList("/audit")
-    ]).then(([orders, prices, items, vendors, audit]) => {
+    ]).then(([orders, prices, items, vendors, accounts, audit]) => {
       if (supplier && !readAccessToken()) return;
       const drafts = {
         orders: data.orders.filter((row) => row.draft),
         prices: data.prices.filter((row) => row.draft),
         items: data.items.filter((row) => row.draft),
-        vendors: data.vendors.filter((row) => row.draft)
+        vendors: data.vendors.filter((row) => row.draft),
+        accounts: data.accounts.filter((row) => row.draft)
       };
       data.orders = drafts.orders.concat(orders);
       data.prices = drafts.prices.concat(prices);
@@ -309,6 +336,7 @@
         vendorRows = vendorRows.filter((row) => String(row.code || "").toUpperCase() === code);
       }
       data.vendors = drafts.vendors.concat(vendorRows);
+      data.accounts = drafts.accounts.concat(accounts.map((row) => Object.assign({ password: "" }, row)));
       data.audit = audit;
       if (supplier) {
         const company = supplierCompany();
@@ -403,7 +431,8 @@
       help.replaceChildren(
         el("p", {}, "1. 담당 또는 승인자 아이디로 로그인합니다."),
         el("p", {}, "2. 담당은 변경요청 검토·반려, 승인자는 최종승인·반려만 합니다."),
-        el("p", {}, "3. 로그인이 안 되면 관리자에게 문의하세요.")
+        el("p", {}, "3. 계정 메뉴에서 담당·승인자 계정과 비밀번호를 관리합니다."),
+        el("p", {}, "4. 로그인이 안 되면 관리자에게 문의하세요.")
       );
     }
   }
@@ -424,6 +453,8 @@
     if (foot) foot.textContent = "협력사";
     const vendorNav = document.querySelector('[data-module="vendors"] span');
     if (vendorNav) vendorNav.textContent = "회사정보";
+    const accountsNav = $("nav-accounts");
+    if (accountsNav) accountsNav.hidden = true;
     const loginTitle = document.querySelector("#login h1");
     if (loginTitle) loginTitle.textContent = "(주)지에스테크 협력사 포털";
     const userLabel = document.querySelector("#login-user-label span");
@@ -469,6 +500,12 @@
       box.append(
         field("사용", select("use", ["전체", "사용", "중지"], "전체")),
         field("검색", searchInput("q", "협력사코드, 협력사명, 담당자"))
+      );
+    } else if (state.module === "accounts") {
+      box.append(
+        field("역할", select("role", ["전체", "담당", "승인자"], "전체")),
+        field("사용", select("use", ["전체", "사용", "중지"], "전체")),
+        field("검색", searchInput("q", "아이디, 이름"))
       );
     } else {
       box.append(
@@ -749,6 +786,14 @@
         { key: "auth", label: "인증유무", width: "72px", render: (row) => stateNode(row.auth || "미인증") }
       ];
     }
+    if (state.module === "accounts") {
+      return [
+        { key: "username", label: "아이디", width: "140px" },
+        { key: "name", label: "이름" },
+        { key: "role", label: "역할", width: "88px", render: (row) => stateNode(row.role) },
+        { key: "use", label: "사용", width: "64px", render: (row) => stateNode(row.use) }
+      ];
+    }
     return [
       { key: "at", label: "일시", width: "140px" },
       { key: "user", label: "사용자", width: "120px" },
@@ -794,6 +839,9 @@
         { label: "적용시작", width: "110px", render: (row) => row.from },
         { label: "상태", width: "84px", render: (row) => stateNode(row.status) }
       ];
+    }
+    if (state.module === "accounts") {
+      return [{ label: "안내", render: (row) => row.note }];
     }
     return [
       { label: "협력사", render: (row) => row.vendor },
@@ -864,6 +912,18 @@
         [{ label: "담당자", key: "contact", edit: true, span: true }],
         [{ label: "이메일", key: "email", edit: true, span: true }]
       ];
+    }
+    if (state.module === "accounts") {
+      const rows = [
+        [
+          { label: "아이디", key: "username", edit: !!record.draft },
+          { label: "사용", key: "use", edit: !record.draft, options: ["사용", "중지"] },
+          { label: "역할", key: "role", edit: true, options: ["담당", "승인자"] },
+          { label: "이름", key: "name", edit: true }
+        ]
+      ];
+      rows.push([{ label: "비밀번호", key: "password", edit: true, span: true }]);
+      return rows;
     }
     const units = ITEM_UNITS.slice();
     const groups = ITEM_GROUPS.slice();
@@ -1092,6 +1152,163 @@
         })
         .catch((error) => toast(error.message || "비밀번호를 초기화하지 못했습니다."));
     });
+  }
+
+  function newAccount() {
+    const account = {
+      tempId: "new-account-" + Date.now(),
+      username: "",
+      name: "",
+      role: "담당",
+      roleKey: "buyer",
+      use: "사용",
+      password: "",
+      draft: true
+    };
+    data.accounts.unshift(account);
+    state.filters = {};
+    renderCriteria();
+    state.selectedId = account.tempId;
+    renderWorkspace();
+    toast("계정 등록을 열었습니다. 아이디와 비밀번호를 입력한 뒤 저장하세요.");
+    const input = $("composite").querySelector('[data-field="username"]');
+    if (input) input.focus();
+  }
+
+  function saveAccount() {
+    const account = selectedAccount();
+    if (!account) return;
+    const username = String(account.username || "").trim();
+    if (!username) {
+      toast("아이디를 입력하세요.");
+      return;
+    }
+    if (!/^[A-Za-z0-9._-]{2,80}$/.test(username)) {
+      toast("아이디는 영문·숫자·._- 만 2~80자로 입력하세요.");
+      return;
+    }
+    if (data.accounts.some((other) => other !== account && String(other.username || "").toLowerCase() === username.toLowerCase())) {
+      toast("이미 있는 아이디입니다.");
+      return;
+    }
+    const name = String(account.name || "").trim();
+    if (!name) {
+      toast("이름을 입력하세요.");
+      return;
+    }
+    if (account.role !== "담당" && account.role !== "승인자") {
+      toast("역할은 담당 또는 승인자입니다.");
+      return;
+    }
+    const password = String(account.password || "");
+    if (account.draft && password.length < 8) {
+      toast("비밀번호는 8자 이상으로 입력하세요.");
+      return;
+    }
+    if (!account.draft && password && password.length < 8) {
+      toast("비밀번호는 8자 이상으로 입력하세요.");
+      return;
+    }
+    const creating = !!account.draft;
+    const payload = {
+      username: username,
+      name: name,
+      role: account.role,
+      use: account.use || "사용",
+      password: password
+    };
+    const path = creating ? "/buyers" : "/buyers/" + encodeURIComponent(account.username);
+    fetch(apiBase() + path, {
+      method: creating ? "POST" : "PATCH",
+      headers: authHeaders(true),
+      body: JSON.stringify(payload)
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || "계정을 저장하지 못했습니다.");
+        const saved = body.record || body;
+        Object.assign(account, saved);
+        account.draft = false;
+        account.password = "";
+        delete account.tempId;
+        state.selectedId = account.username;
+        if (body.audit) data.audit.unshift(body.audit);
+        if (account.username === state.buyerUsername) {
+          state.buyerName = saved.name || state.buyerName;
+          state.buyerRole = saved.roleKey || (saved.role === "승인자" ? "approver" : "buyer");
+          const nameNode = $("session-name");
+          if (nameNode) nameNode.textContent = state.buyerName;
+          const role = document.querySelector(".session-key");
+          if (role) role.textContent = saved.role || "담당";
+          const foot = document.querySelector(".nav-foot");
+          if (foot) foot.textContent = state.buyerRole === "approver" ? "구매 승인자" : "구매 담당";
+        }
+        paintList();
+        paintDetail();
+        renderCommand();
+        renderStatus();
+        toast(creating ? "계정을 등록했습니다." : "계정을 저장했습니다.");
+      })
+      .catch((error) => toast(error.message || "계정을 저장하지 못했습니다."));
+  }
+
+  function setAccountUse(use) {
+    const account = selectedAccount();
+    if (!account || account.draft) return;
+    account.use = use;
+    account.password = "";
+    fetch(apiBase() + "/buyers/" + encodeURIComponent(account.username), {
+      method: "PATCH",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        username: account.username,
+        name: account.name,
+        role: account.role,
+        use: use,
+        password: ""
+      })
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || "사용 여부를 바꾸지 못했습니다.");
+        Object.assign(account, body.record || body);
+        account.password = "";
+        if (body.audit) data.audit.unshift(body.audit);
+        syncListRow(account);
+        paintDetail();
+        renderCommand();
+        toast(use === "중지" ? "계정을 중지했습니다." : "계정을 사용으로 바꿨습니다.");
+      })
+      .catch((error) => {
+        account.use = use === "중지" ? "사용" : "중지";
+        toast(error.message || "사용 여부를 바꾸지 못했습니다.");
+      });
+  }
+
+  function changeAccountPassword() {
+    const account = selectedAccount();
+    if (!account || account.draft) return;
+    const password = String(account.password || "");
+    if (password.length < 8) {
+      toast("새 비밀번호를 8자 이상 입력한 뒤 비밀번호 변경을 누르세요.");
+      const input = $("composite").querySelector('[data-field="password"]');
+      if (input) input.focus();
+      return;
+    }
+    fetch(apiBase() + "/buyers/" + encodeURIComponent(account.username) + "/password", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({ password: password })
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || "비밀번호를 바꾸지 못했습니다.");
+        account.password = "";
+        if (body.audit) data.audit.unshift(body.audit);
+        paintDetail();
+        toast("비밀번호를 바꿨습니다. 해당 계정은 다시 로그인해야 할 수 있습니다.");
+      })
+      .catch((error) => toast(error.message || "비밀번호를 바꾸지 못했습니다."));
   }
 
   function saveVendor() {
@@ -1668,6 +1885,14 @@
         return true;
       });
     }
+    if (state.module === "accounts") {
+      return data.accounts.filter((account) => {
+        if (filters.role && filters.role !== "전체" && account.role !== filters.role) return false;
+        if (filters.use && filters.use !== "전체" && account.use !== filters.use) return false;
+        if (filters.q && !(account.username + account.name).toLowerCase().includes(filters.q.toLowerCase())) return false;
+        return true;
+      });
+    }
     const visibleOrders = supplier
       ? data.orders.filter((order) => supplierOwns(order.vendor) && order.status !== "작성").map((order) => order.id)
       : [];
@@ -1741,6 +1966,11 @@
       cells[4].textContent = record.phone;
       cells[5].replaceChildren(stateNode(record.use));
       cells[6].replaceChildren(stateNode(record.auth || "미인증"));
+    } else if (state.module === "accounts") {
+      cells[0].textContent = record.username;
+      cells[1].textContent = record.name;
+      cells[2].replaceChildren(stateNode(record.role));
+      cells[3].replaceChildren(stateNode(record.use));
     }
   }
 
@@ -1759,6 +1989,7 @@
     else if (record && state.module === "prices") text = record.code + " 단가";
     else if (record && state.module === "items") text = (record.code || "신규") + " 품목";
     else if (record && state.module === "vendors") text = (record.code || "신규") + " 협력사";
+    else if (record && state.module === "accounts") text = (record.username || "신규") + " 계정";
     else if (state.module === "audit") text = "변경 이력";
     tab.replaceChildren(el("span", {}, text));
   }
@@ -1772,6 +2003,7 @@
     else if (record && state.module === "prices") left += "  ·  " + record.code + "  ·  " + money(record.price);
     else if (record && state.module === "items") left += "  ·  " + (record.code || "신규");
     else if (record && state.module === "vendors") left += "  ·  " + (record.code || "신규") + "  ·  " + (record.name || "");
+    else if (record && state.module === "accounts") left += "  ·  " + (record.username || "신규") + "  ·  " + (record.role || "");
     const message = pending > 0
       ? pendingPriceLabel() + " " + pending + "건 · 단가에서 " + (isBuyerApprover() ? "승인·반려" : "검토·반려") + "하세요"
       : state.message;
@@ -1910,7 +2142,7 @@
     return el("span", { class: "state " + stateClass(value) }, value || "");
   }
   function stateClass(value) {
-    if (["확정", "적용중", "승인", "사용", "등록", "인증"].includes(value)) return "ok";
+    if (["확정", "적용중", "승인", "사용", "등록", "인증", "담당", "승인자"].includes(value)) return "ok";
     if (["승인대기", "검토완료", "변경요청", "검토", "미인증"].includes(value)) return "wait";
     if (["취소", "반려", "중지"].includes(value)) return "stop";
     if (["종료"].includes(value)) return "mute";
@@ -1922,6 +2154,7 @@
     if (state.module === "prices") return !!record.draft || record.status === "적용중";
     if (state.module === "items") return true;
     if (state.module === "vendors") return true;
+    if (state.module === "accounts") return true;
     return false;
   }
   function selectedRecord() {
@@ -1929,7 +2162,11 @@
     if (state.module === "prices") return selectedPrice();
     if (state.module === "items") return selectedItem();
     if (state.module === "vendors") return selectedVendor();
+    if (state.module === "accounts") return selectedAccount();
     return null;
+  }
+  function selectedAccount() {
+    return data.accounts.find((account) => (account.draft ? account.tempId : account.username) === state.selectedId) || null;
   }
   function selectedVendor() {
     return data.vendors.find((vendor) => (vendor.draft ? vendor.tempId : vendor.code) === state.selectedId) || null;
@@ -1957,11 +2194,18 @@
   }
   function fieldInputAttrs(record, field, editable) {
     const attrs = {
-      value: editable && field.date ? show(record[field.key]) : fieldText(record, field, editable),
+      value: field.key === "password"
+        ? (record.password || "")
+        : (editable && field.date ? show(record[field.key]) : fieldText(record, field, editable)),
       readonly: editable ? null : "readonly",
       "data-field": field.key
     };
     if (editable && field.date) attrs.type = "date";
+    if (field.key === "password") {
+      attrs.type = "password";
+      attrs.autocomplete = "new-password";
+      attrs.placeholder = record.draft ? "8자 이상" : "변경 시에만 입력";
+    }
     if (editable && field.money) attrs.inputMode = "decimal";
     if (editable && field.biz) {
       attrs.inputMode = "numeric";
@@ -1978,6 +2222,13 @@
     if (state.module === "orders") return record.lines;
     if (state.module === "prices") return record.history;
     if (state.module === "vendors") return data.prices.filter((price) => price.vendor === record.name && !price.draft);
+    if (state.module === "accounts") {
+      return [{
+        note: record.draft
+          ? "신규 계정은 아이디·이름·역할·비밀번호를 넣고 저장하세요."
+          : "비밀번호를 바꾸려면 비밀번호란에 새 값을 넣거나 비밀번호 변경을 누르세요. 담당·승인자는 각각 사용 중 계정이 하나 이상 필요합니다."
+      }];
+    }
     return contractsFor(record.code);
   }
   function contractsFor(code) {
@@ -1988,6 +2239,7 @@
     if (state.module === "prices") return row.id;
     if (state.module === "items") return row.draft ? row.tempId : row.code;
     if (state.module === "vendors") return row.draft ? row.tempId : row.code;
+    if (state.module === "accounts") return row.draft ? row.tempId : row.username;
     return row.at + row.target;
   }
   function firstId(rows) { return rows.length ? rowId(rows[0]) : ""; }
@@ -1997,13 +2249,13 @@
     return (order.id + order.vendor + order.lines.map((line) => line.code + line.name).join("")).toLowerCase();
   }
   function listCaption() {
-    return { orders: "발주 목록", prices: "계약 단가", items: "품목", vendors: supplier ? "회사 정보" : "협력사" }[state.module];
+    return { orders: "발주 목록", prices: "계약 단가", items: "품목", vendors: supplier ? "회사 정보" : "협력사", accounts: "구매 계정" }[state.module];
   }
   function detailCaption() {
-    return { orders: "발주 정보", prices: "단가 정보", items: "품목 정보", vendors: supplier ? "회사 정보" : "협력사 정보" }[state.module];
+    return { orders: "발주 정보", prices: "단가 정보", items: "품목 정보", vendors: supplier ? "회사 정보" : "협력사 정보", accounts: "계정 정보" }[state.module];
   }
   function lineCaption() {
-    return { orders: "품목", prices: "단가 이력", items: "계약 단가", vendors: "계약 단가" }[state.module];
+    return { orders: "품목", prices: "단가 이력", items: "계약 단가", vendors: "계약 단가", accounts: "안내" }[state.module];
   }
   function apiBase() {
     const configured = window.SCM_CONFIG && window.SCM_CONFIG.apiBase;
@@ -2072,6 +2324,7 @@
     state.supplierCode = "";
     state.buyerRole = "";
     state.buyerName = "";
+    state.buyerUsername = "";
     const button = $("logout");
     if (button) button.hidden = true;
     const name = $("session-name");
@@ -2112,6 +2365,7 @@
     } else {
       state.buyerRole = me.role || "buyer";
       state.buyerName = me.name || me.username || "";
+      state.buyerUsername = me.username || "";
       const role = document.querySelector(".session-key");
       if (role) role.textContent = me.roleLabel || (state.buyerRole === "approver" ? "승인자" : "담당");
       const foot = document.querySelector(".nav-foot");

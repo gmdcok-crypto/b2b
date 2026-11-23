@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.routers.auth import router as auth_router
+from app.routers.buyers import router as buyers_router
 from app.routers.health import router as health_router
 from app.routers.suppliers import router as suppliers_router
 from app.routers.trade import router as trade_router
@@ -26,6 +27,7 @@ app.add_middleware(
 )
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(buyers_router)
 app.include_router(suppliers_router)
 app.include_router(trade_router)
 app.mount(
