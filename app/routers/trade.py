@@ -342,11 +342,12 @@ def replace_lines(db: Session, order: Order, lines: list[LineBody]) -> None:
     for row in existing:
         db.delete(row)
     number = 1
+    # 납기는 발주 헤더 납기일만 쓰고, 품목 행 납기는 두지 않는다.
+    due = order.due_date
     for line in lines:
         code = line.code.strip().upper()
         if not code and not line.name.strip() and not line.qty:
             continue
-        due = parse_day(line.due, "납기", required=False)
         db.add(
             OrderLine(
                 order_id=order.id,

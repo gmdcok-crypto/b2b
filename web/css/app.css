@@ -450,6 +450,18 @@ html.boot .app { visibility: hidden; }
   color: var(--muted);
   font-size: 12px;
 }
+.line-lookup {
+  min-height: 28px;
+}
+.line-lookup > input {
+  border: 0;
+  background: transparent;
+  padding: 0 6px;
+  font: inherit;
+}
+.line-lookup .lookup-list {
+  z-index: 40;
+}
 
 .grid-scroll { flex: 1; min-height: 0; overflow: auto; }
 .grid-scroll::-webkit-scrollbar { width: 10px; height: 10px; }

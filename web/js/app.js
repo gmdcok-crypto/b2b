@@ -840,14 +840,13 @@
       const edit = record.status === "작성";
       return [
         { label: "No", width: "36px", align: "num", render: (_row, index) => String(index + 1) },
-        { label: "품목코드", width: "108px", render: (row, index) => lineCell(row, index, "code", edit) },
+        { label: "품목코드", width: "140px", render: (row, index) => (edit ? lineItemLookup(record, row, index) : show(row.code)) },
         { label: "품목명", render: (row, index) => lineCell(row, index, "name", edit) },
         { label: "규격", width: "96px", render: (row, index) => lineCell(row, index, "spec", edit) },
         { label: "단위", width: "42px", render: (row, index) => lineCell(row, index, "unit", edit) },
         { key: "qty", label: "수량", width: "64px", align: "num", render: (row, index) => lineCell(row, index, "qty", edit, true) },
         { key: "price", label: "단가", width: "76px", align: "num", render: (row, index) => lineCell(row, index, "price", edit, true) },
-        { key: "amount", label: "공급가액", width: "96px", align: "num", render: (row) => el("span", { "data-amount": "1" }, money(lineAmount(row))) },
-        { label: "납기", width: "92px", render: (row, index) => lineCell(row, index, "due", edit) }
+        { key: "amount", label: "공급가액", width: "96px", align: "num", render: (row) => el("span", { "data-amount": "1" }, money(lineAmount(row))) }
       ];
     }
     if (state.module === "prices") {
@@ -892,7 +891,19 @@
           { label: "납기일", key: "due", edit: true, date: true }
         ],
         [
-          { label: "협력사", key: "vendor", edit: true, options: vendorNames(record.vendor), allowEmpty: true },
+          {
+            label: "협력사",
+            key: "vendor",
+            edit: true,
+            options: vendorNames(record.vendor),
+            allowEmpty: true,
+            after: (order) => {
+              (order.lines || []).forEach((line) => {
+                if (line.code) applyOrderLineItem(order, line);
+              });
+              paintDetail();
+            }
+          },
           { label: "담당", key: "buyer", edit: true },
           { label: "통화", key: "currency" },
           { label: "부가세", key: "vat" }
@@ -1076,6 +1087,33 @@
     record.name = item ? item.name : "";
     record.spec = item ? item.spec : "";
     record.unit = item ? item.unit : "";
+  }
+
+  function activeContractPrice(vendor, code) {
+    if (!vendor || !code) return null;
+    const row = data.prices.find(
+      (price) =>
+        !price.draft &&
+        price.status === "적용중" &&
+        price.vendor === vendor &&
+        price.code === code
+    );
+    return row == null ? null : Number(row.price);
+  }
+
+  function applyOrderLineItem(order, line) {
+    const item = data.items.find((row) => !row.draft && row.code === line.code);
+    if (item) {
+      line.name = item.name;
+      line.spec = item.spec || "";
+      line.unit = item.unit || "EA";
+    } else if (!line.code) {
+      line.name = "";
+      line.spec = "";
+      line.unit = "EA";
+    }
+    const contract = activeContractPrice(order.vendor, line.code);
+    if (contract != null) line.price = contract;
   }
 
   function nextPriceId() {
@@ -1669,7 +1707,7 @@
       currency: "KRW",
       vat: "별도",
       note: "",
-      lines: [{ code: "", name: "", spec: "", unit: "EA", qty: 0, price: 0, due: formatDate(new Date()) }]
+      lines: [{ code: "", name: "", spec: "", unit: "EA", qty: 0, price: 0 }]
     };
     data.orders.unshift(order);
     state.filters = {};
@@ -1707,7 +1745,7 @@
         unit: line.unit || "",
         qty: Number(line.qty || 0),
         price: Number(String(line.price || 0).replace(/,/g, "")),
-        due: line.due || ""
+        due: order.due || ""
       }))
     };
   }
@@ -2092,8 +2130,8 @@
     head.append(printRow(["협력사", order.vendor, "담당", order.buyer, "통화", order.currency, "부가세", order.vat]));
     head.append(printRow(["비고", order.note || " ", "", "", "", "", "", ""]));
     const lines = el("table");
-    lines.append(el("tr", {}, ["No", "품목코드", "품목명", "규격", "단위", "수량", "단가", "공급가액", "납기"].map((label, index) => {
-      return el("th", { class: index >= 5 && index <= 7 ? "num" : "" }, label);
+    lines.append(el("tr", {}, ["No", "품목코드", "품목명", "규격", "단위", "수량", "단가", "공급가액"].map((label, index) => {
+      return el("th", { class: index >= 5 ? "num" : "" }, label);
     })));
     order.lines.forEach((line, index) => {
       lines.append(el("tr", {}, [
@@ -2104,16 +2142,14 @@
         el("td", {}, line.unit),
         el("td", { class: "num" }, qty(line.qty)),
         el("td", { class: "num" }, money(line.price)),
-        el("td", { class: "num" }, money(lineAmount(line))),
-        el("td", {}, line.due)
+        el("td", { class: "num" }, money(lineAmount(line)))
       ]));
     });
     lines.append(el("tr", {}, [
       el("td", { colspan: "5" }, "합계"),
       el("td", { class: "num" }, qty(order.lines.reduce((sum, line) => sum + Number(line.qty || 0), 0))),
       el("td", {}, ""),
-      el("td", { class: "num" }, money(orderAmount(order))),
-      el("td", {}, "")
+      el("td", { class: "num" }, money(orderAmount(order)))
     ]));
     const sign = el("div", { class: "print-sign" }, el("div", {}, "담당"), el("div", {}, "승인"));
     root.append(head, lines, sign, el("p", { class: "print-note" }, "부가세 별도. 직인과 양식은 출력 견본이 확정되기 전의 기본 배치입니다."));
@@ -2192,14 +2228,182 @@
   }
   function lineCell(row, index, key, edit, numeric) {
     if (!edit) return numeric ? (key === "qty" ? qty(row[key]) : money(row[key])) : show(row[key]);
-    const attrs = {
+    return el("input", {
       class: "cell-input",
       "data-index": String(index),
       "data-key": key,
       value: row[key] == null ? "" : String(row[key])
-    };
-    if (key === "due") attrs.type = "date";
-    return el("input", attrs);
+    });
+  }
+
+  function placeLookupList(input, list) {
+    const rect = input.getBoundingClientRect();
+    list.style.position = "fixed";
+    list.style.left = Math.max(8, rect.left) + "px";
+    list.style.top = rect.bottom + "px";
+    list.style.width = Math.max(rect.width, 280) + "px";
+    list.style.right = "auto";
+  }
+
+  function lineItemLookup(order, line, index) {
+    const root = el("div", { class: "lookup line-lookup" });
+    const input = el("input", {
+      type: "search",
+      class: "cell-input",
+      "data-index": String(index),
+      "data-key": "code",
+      value: line.code || "",
+      placeholder: "코드·품목명 검색",
+      autocomplete: "off"
+    });
+    const list = el("div", { class: "lookup-list", hidden: true });
+    let active = -1;
+    let matches = [];
+
+    function closeList() {
+      list.hidden = true;
+      list.replaceChildren();
+      active = -1;
+      matches = [];
+    }
+
+    function paintOptions() {
+      list.replaceChildren();
+      if (!matches.length) {
+        list.append(el("div", { class: "lookup-empty" }, "일치하는 품목이 없습니다."));
+        placeLookupList(input, list);
+        list.hidden = false;
+        return;
+      }
+      matches.forEach((item, optionIndex) => {
+        const contract = activeContractPrice(order.vendor, item.code);
+        const label =
+          item.code +
+          "  " +
+          item.name +
+          (item.spec ? "  / " + item.spec : "") +
+          (item.unit ? "  [" + item.unit + "]" : "") +
+          (contract != null ? "  " + money(contract) : "");
+        const option = el(
+          "button",
+          {
+            type: "button",
+            class: "lookup-option" + (optionIndex === active ? " is-active" : ""),
+            "data-index": String(optionIndex)
+          },
+          label
+        );
+        option.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+          pickItem(item);
+        });
+        list.append(option);
+      });
+      placeLookupList(input, list);
+      list.hidden = false;
+    }
+
+    function queryItems(text) {
+      const needle = String(text || "").trim().toLowerCase();
+      return data.items
+        .filter((item) => !item.draft && (item.use === "사용" || item.code === line.code))
+        .filter((item) => {
+          if (!needle) return true;
+          return (item.code + " " + item.name + " " + (item.spec || "")).toLowerCase().includes(needle);
+        })
+        .sort((a, b) => {
+          const aHit = activeContractPrice(order.vendor, a.code) != null ? 0 : 1;
+          const bHit = activeContractPrice(order.vendor, b.code) != null ? 0 : 1;
+          if (aHit !== bHit) return aHit - bHit;
+          return String(a.code).localeCompare(String(b.code));
+        })
+        .slice(0, 40);
+    }
+
+    function openList(text) {
+      matches = queryItems(text);
+      active = matches.length ? 0 : -1;
+      paintOptions();
+    }
+
+    function pickItem(item) {
+      line.code = item.code;
+      input.value = item.code;
+      applyOrderLineItem(order, line);
+      closeList();
+      syncListRow(order);
+      paintDetail();
+      renderStatus();
+      const qtyInput = $("composite").querySelector(
+        '.line-scroll input[data-index="' + index + '"][data-key="qty"]'
+      );
+      if (qtyInput) qtyInput.focus();
+    }
+
+    function moveActive(step) {
+      if (!matches.length) return;
+      active = (active + step + matches.length) % matches.length;
+      paintOptions();
+      const option = list.querySelector('.lookup-option[data-index="' + active + '"]');
+      if (option) option.scrollIntoView({ block: "nearest" });
+    }
+
+    input.addEventListener("focus", () => openList(input.value));
+    input.addEventListener("input", () => {
+      line.code = String(input.value || "").trim();
+      openList(input.value);
+      renderStatus();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        if (list.hidden) openList(input.value);
+        else moveActive(1);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        if (!list.hidden) moveActive(-1);
+        return;
+      }
+      if (event.key === "Enter") {
+        if (!list.hidden && active >= 0 && matches[active]) {
+          event.preventDefault();
+          pickItem(matches[active]);
+        }
+        return;
+      }
+      if (event.key === "Escape") closeList();
+    });
+    input.addEventListener("blur", () => {
+      window.setTimeout(() => {
+        closeList();
+        const code = normalizeItemCode(input.value);
+        input.value = code;
+        line.code = code;
+        applyOrderLineItem(order, line);
+        const tr = input.closest("tr");
+        if (tr) {
+          const nameInput = tr.querySelector('input[data-key="name"]');
+          const specInput = tr.querySelector('input[data-key="spec"]');
+          const unitInput = tr.querySelector('input[data-key="unit"]');
+          const priceInput = tr.querySelector('input[data-key="price"]');
+          const amountCell = tr.querySelector("[data-amount]");
+          if (nameInput) nameInput.value = line.name || "";
+          if (specInput) specInput.value = line.spec || "";
+          if (unitInput) unitInput.value = line.unit || "";
+          if (priceInput) priceInput.value = line.price == null ? "" : String(line.price);
+          if (amountCell) amountCell.textContent = money(lineAmount(line));
+        }
+        const lines = $("composite").querySelector(".line-scroll");
+        if (lines) updateOrderFoot(lines, order);
+        syncListRow(order);
+        renderStatus();
+      }, 120);
+    });
+
+    root.append(input, list);
+    return root;
   }
   function stateNode(value) {
     return el("span", { class: "state " + stateClass(value) }, value || "");

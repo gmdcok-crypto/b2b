@@ -150,7 +150,7 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
             "due": "2026-11-20",
             "vendor": "한빛금속",
             "buyer": "김구매",
-            "lines": [{"code": "AL-1", "name": "알루미늄", "spec": "Ø20", "unit": "M", "qty": 2, "price": 5000, "due": "2026-11-20"}],
+            "lines": [{"code": "AL-1", "name": "알루미늄", "spec": "Ø20", "unit": "M", "qty": 2, "price": 5000, "due": "2026-12-01"}],
         },
     )
     assert order.status_code == 201
@@ -159,6 +159,8 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
     assert doc == peeked.json()["id"]
     assert len(doc) == 10 and doc.isdigit()
     assert doc.endswith("0001")
+    assert order.json()["record"]["due"] == "2026-11-20"
+    assert order.json()["record"]["lines"][0]["due"] == "2026-11-20"
     second = trade_client.post(
         "/orders",
         json={
@@ -166,7 +168,7 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
             "due": "2026-11-20",
             "vendor": "한빛금속",
             "buyer": "김구매",
-            "lines": [{"code": "AL-1", "name": "알루미늄", "spec": "Ø20", "unit": "M", "qty": 1, "price": 5000, "due": "2026-11-20"}],
+            "lines": [{"code": "AL-1", "name": "알루미늄", "spec": "Ø20", "unit": "M", "qty": 1, "price": 5000}],
         },
     )
     assert second.json()["record"]["id"] == doc[:6] + "0002"
@@ -178,7 +180,7 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
             "due": "2026-11-20",
             "vendor": "한빛금속",
             "buyer": "김구매",
-            "lines": [{"code": "AL-1", "name": "알루미늄", "spec": "Ø20", "unit": "M", "qty": 2, "price": 5000, "due": "2026-11-20"}],
+            "lines": [{"code": "AL-1", "name": "알루미늄", "spec": "Ø20", "unit": "M", "qty": 2, "price": 5000}],
         },
     )
     assert confirmed.status_code == 200
