@@ -143,7 +143,6 @@
         { label: "신규", run: newPrice },
         { label: "저장", enable: () => price && price.draft, run: savePrice },
         "|",
-        { label: "변경요청", enable: () => price && price.status === "적용중", run: requestPrice },
         {
           label: "검토",
           enable: () => isBuyerStaff() && price && price.status === "승인대기",
@@ -459,7 +458,7 @@
     if (help) {
       help.replaceChildren(
         el("p", {}, "1. 관리자·담당·승인자 아이디로 로그인합니다. 계정은 DB에서 관리합니다."),
-        el("p", {}, "2. 담당은 검토·반려, 승인자는 최종승인·반려, 관리자는 계정·마스터를 관리합니다."),
+        el("p", {}, "2. 단가 변경요청은 협력사가 하고, 담당은 검토·반려, 승인자는 최종승인·반려합니다."),
         el("p", {}, "3. 계정 메뉴는 관리자만 사용할 수 있습니다."),
         el("p", {}, "4. 최초 관리자만 시드하고, 담당·승인자는 계정 메뉴에서 만듭니다.")
       );
@@ -921,8 +920,11 @@
         [{ label: "비고", key: "note", edit: drafting, span: true }]
       ];
       if (!drafting) {
-        rows.push([{ label: "요청단가", key: "request", edit: record.status === "적용중", money: true, span: true }]);
-        if (record.status === "적용중") {
+        const canRequest = supplier && record.status === "적용중";
+        if (canRequest || record.request !== "" && record.request != null) {
+          rows.push([{ label: "요청단가", key: "request", edit: canRequest, money: true, span: true }]);
+        }
+        if (canRequest) {
           rows.push([{ label: "공문첨부", key: "file", file: true, edit: true, span: true }]);
         }
         if (record.attachment && record.attachment.name) {
@@ -2170,7 +2172,7 @@
   function canEdit(record) {
     if (supplier) return state.module === "prices" && record.status === "적용중";
     if (state.module === "orders") return record.status === "작성";
-    if (state.module === "prices") return !!record.draft || record.status === "적용중";
+    if (state.module === "prices") return !!record.draft;
     if (state.module === "items") return true;
     if (state.module === "vendors") return true;
     if (state.module === "accounts") return true;

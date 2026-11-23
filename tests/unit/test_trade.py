@@ -66,6 +66,12 @@ def _ensure_approver(client: TestClient) -> dict[str, str]:
     return _login(client, "approver", "approve-pass")
 
 
+def _supplier_headers(client: TestClient, code: str = "V-0001") -> dict[str, str]:
+    client.post("/auth/supplier/password", json={"code": code, "password": "password1"})
+    token = client.post("/auth/supplier/login", json={"code": code, "password": "password1"}).json()["access_token"]
+    return {"Authorization": "Bearer " + token}
+
+
 def test_trade_lists_start_empty(trade_client: TestClient) -> None:
     assert trade_client.get("/items").json() == []
     assert trade_client.get("/prices").json() == []
@@ -209,9 +215,17 @@ def test_price_review_and_approve_roles(auth_env, trade_client: TestClient) -> N
         json={"code": "AL-1", "vendor": "한빛금속", "price": 1000, "from": "2026-11-01"},
     )
     price_id = price.json()["record"]["id"]
-    trade_client.post(
+    denied_buyer_request = trade_client.post(
         "/prices/" + price_id + "/request",
         headers=buyer,
+        data={"request": "1200"},
+        files={"file": ("공문.pdf", b"%PDF-1.4 x", "application/pdf")},
+    )
+    assert denied_buyer_request.status_code == 403
+    supplier = _supplier_headers(trade_client)
+    trade_client.post(
+        "/prices/" + price_id + "/request",
+        headers=supplier,
         data={"request": "1200"},
         files={"file": ("공문.pdf", b"%PDF-1.4 x", "application/pdf")},
     )
@@ -242,9 +256,10 @@ def test_price_reject_keeps_before_and_after_same(auth_env, trade_client: TestCl
         json={"code": "AL-1", "vendor": "한빛금속", "price": 1000, "from": "2026-11-01"},
     )
     price_id = price.json()["record"]["id"]
+    supplier = _supplier_headers(trade_client)
     trade_client.post(
         "/prices/" + price_id + "/request",
-        headers=buyer,
+        headers=supplier,
         data={"request": "1500"},
         files={"file": ("공문.pdf", b"%PDF-1.4 x", "application/pdf")},
     )

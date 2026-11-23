@@ -594,11 +594,14 @@ async def request_price(
     identity = caller(authorization)
     row = find_price(db, doc_no)
     supplier = supplier_map(db)[row.supplier_id]
-    if identity is not None and identity.get("role") == "supplier":
+    if identity is not None:
+        if identity.get("role") != "supplier":
+            raise AppError("forbidden", "단가 변경요청은 협력사만 할 수 있습니다.", 403)
         if identity["username"].upper() != supplier.code.upper():
             raise AppError("forbidden", "자사 단가만 요청할 수 있습니다.", 403)
         user = supplier.name
     else:
+        # 인증이 꺼진 로컬/테스트 환경에서만 구매 없이 요청을 허용한다.
         user = require_trade_buyer(authorization)
     if row.status != "적용중":
         raise AppError("invalid_status", "적용 중인 단가만 변경 요청할 수 있습니다.")
