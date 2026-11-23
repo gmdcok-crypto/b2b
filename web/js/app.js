@@ -74,6 +74,9 @@
       toast("관리자만 계정을 관리할 수 있습니다.");
       name = "orders";
     }
+    if (state.module === "orders" && name !== "orders") {
+      discardOrderDrafts();
+    }
     state.module = name;
     state.message = "";
     state.sortKey = name === "orders" ? "date" : name === "audit" ? "at" : name === "accounts" ? "username" : "code";
@@ -348,7 +351,9 @@
         const person = $("session-name");
         if (person && company.contact) person.textContent = company.contact;
       }
-      if (!filtered().some((row) => rowId(row) === state.selectedId)) state.selectedId = firstId(filtered());
+      if (!filtered().some((row) => rowId(row) === state.selectedId) && !isDraftOrderSelected()) {
+        state.selectedId = firstId(filtered());
+      }
       renderWorkspace();
       renderCommand();
       renderStatus();
@@ -549,7 +554,9 @@
   function onFilter() {
     state.filters = readFilters();
     const rows = filtered();
-    if (!rows.some((row) => rowId(row) === state.selectedId)) state.selectedId = firstId(rows);
+    if (!rows.some((row) => rowId(row) === state.selectedId) && !isDraftOrderSelected()) {
+      state.selectedId = firstId(rows);
+    }
     paintList();
     paintDetail();
     renderCommand();
@@ -677,6 +684,7 @@
   }
 
   function choose(id, repaintList) {
+    if (state.module === "orders") discardOrderDrafts();
     state.selectedId = id;
     if (repaintList) paintList();
     else markSelected();
@@ -1722,7 +1730,16 @@
     return prefix + String(seq + 1).padStart(4, "0");
   }
 
+  function discardOrderDrafts(exceptTempId) {
+    data.orders = data.orders.filter((order) => !order.draft || order.tempId === exceptTempId);
+  }
+
+  function isDraftOrderSelected() {
+    return state.module === "orders" && !!selectedOrder()?.draft;
+  }
+
   function newOrder() {
+    discardOrderDrafts();
     const order = {
       tempId: "ONEW-" + orderSeq++,
       id: peekOrderNo(),
@@ -1742,7 +1759,7 @@
     renderCriteria();
     state.selectedId = order.tempId;
     renderWorkspace();
-    toast("작성 문서를 열었습니다.");
+    toast("작성 문서를 열었습니다. 저장 전에는 목록에 나타나지 않습니다.");
     const input = $("composite").querySelector('.detail-pane input[data-field="vendor"]');
     if (input) input.focus();
     fetch(apiBase() + "/orders/next-no", { headers: authHeaders(false) })
@@ -1751,7 +1768,6 @@
         if (!response.ok || !body.id) return;
         if (!order.draft) return;
         order.id = body.id;
-        paintList();
         paintDetail();
       })
       .catch(() => {});
@@ -1981,6 +1997,7 @@
     const filters = state.filters;
     if (state.module === "orders") {
       return data.orders.filter((order) => {
+        if (order.draft) return false;
         if (supplier && (!supplierOwns(order.vendor) || order.status === "작성")) return false;
         if (filters.from && order.date < filters.from) return false;
         if (filters.to && order.date > filters.to) return false;
