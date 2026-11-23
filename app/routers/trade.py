@@ -378,13 +378,13 @@ def apply_order(db: Session, row: Order, body: OrderBody) -> Supplier:
 
 
 def next_order_no(db: Session) -> str:
-    today = date.today()
-    prefix = "PO-" + today.strftime("%Y%m") + "-"
+    """작성일 기준 YYMMDD + 일별 연번 4자리. 예: 2611240001."""
+    prefix = date.today().strftime("%y%m%d")
     rows = db.scalars(select(Order.doc_no).where(Order.doc_no.like(prefix + "%"))).all()
     seq = 0
     for doc in rows:
-        tail = doc.rsplit("-", 1)[-1]
-        if tail.isdigit():
+        tail = doc[len(prefix) :]
+        if len(doc) == 10 and doc.startswith(prefix) and tail.isdigit():
             seq = max(seq, int(tail))
     return prefix + f"{seq + 1:04d}"
 

@@ -153,6 +153,19 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
     assert order.status_code == 201
     assert order.json()["record"]["status"] == "작성"
     doc = order.json()["record"]["id"]
+    assert len(doc) == 10 and doc.isdigit()
+    assert doc.endswith("0001")
+    second = trade_client.post(
+        "/orders",
+        json={
+            "date": "2026-11-16",
+            "due": "2026-11-20",
+            "vendor": "한빛금속",
+            "buyer": "김구매",
+            "lines": [{"code": "AL-1", "name": "알루미늄", "spec": "Ø20", "unit": "M", "qty": 1, "price": 5000, "due": "2026-11-20"}],
+        },
+    )
+    assert second.json()["record"]["id"] == doc[:6] + "0002"
 
     confirmed = trade_client.post(
         "/orders/" + doc + "/confirm",
