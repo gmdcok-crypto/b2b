@@ -187,7 +187,12 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
             "lines": [{"code": "AL-1", "name": "알루미늄", "spec": "Ø20", "unit": "M", "qty": 1, "price": 5000}],
         },
     )
-    assert second.json()["record"]["id"] == doc[:6] + "0002"
+    second_id = second.json()["record"]["id"]
+    assert second_id == doc[:6] + "0002"
+    deleted = trade_client.delete("/orders/" + second_id)
+    assert deleted.status_code == 200
+    assert deleted.json()["audit"]["action"] == "삭제"
+    assert second_id not in [row["id"] for row in trade_client.get("/orders").json()]
 
     confirmed = trade_client.post(
         "/orders/" + doc + "/confirm",
@@ -201,12 +206,15 @@ def test_item_price_and_order_roundtrip(trade_client: TestClient) -> None:
     )
     assert confirmed.status_code == 200
     assert confirmed.json()["record"]["status"] == "확정"
+    denied_delete = trade_client.delete("/orders/" + doc)
+    assert denied_delete.status_code == 400
 
     cancelled = trade_client.post("/orders/" + doc + "/cancel")
     assert cancelled.json()["record"]["status"] == "취소"
     actions = [row["action"] for row in trade_client.get("/audit").json()]
     assert "확정" in actions
     assert "취소" in actions
+    assert "삭제" in actions
     assert "등록" in actions
 
 

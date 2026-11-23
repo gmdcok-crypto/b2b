@@ -136,9 +136,15 @@
         { label: "저장", enable: () => order && order.status === "작성", run: saveOrder },
         "|",
         { label: "확정", enable: () => order && order.status === "작성", run: confirmOrder },
+        {
+          label: "삭제",
+          kind: "danger",
+          enable: () => order && order.status === "작성",
+          run: deleteOrder
+        },
         { label: "발주취소", kind: "danger", enable: () => order && order.status === "확정", run: cancelOrder },
         "|",
-        { label: "인쇄", enable: () => !!order, run: printCurrent }
+        { label: "인쇄", enable: () => !!order && !order.draft, run: printCurrent }
       ];
     }
     if (state.module === "prices") {
@@ -542,7 +548,7 @@
       );
     } else {
       box.append(
-        field("작업", select("action", ["전체", "작성", "확정", "취소", "변경요청", "검토", "승인", "반려", "종료", "등록", "수정", "사용중지", "사용재개"], "전체")),
+        field("작업", select("action", ["전체", "작성", "확정", "취소", "삭제", "변경요청", "검토", "승인", "반려", "종료", "등록", "수정", "사용중지", "사용재개"], "전체")),
         field("검색", searchInput("q", "대상, 사용자, 내용"))
       );
     }
@@ -1228,7 +1234,7 @@
     }
   }
 
-  function confirmNotice(message, onYes) {
+  function confirmNotice(message, onYes, okLabel) {
     const panel = $("notice");
     const text = $("notice-text");
     const button = $("notice-ok");
@@ -1239,7 +1245,7 @@
     panel.hidden = false;
     if (cancel) cancel.hidden = false;
     if (button) {
-      button.textContent = "초기화";
+      button.textContent = okLabel || "확인";
       button.classList.add("danger");
       button.focus();
     }
@@ -1249,20 +1255,24 @@
     const vendor = selectedVendor();
     if (!vendor || vendor.draft) return;
     const name = vendor.name || vendor.code;
-    confirmNotice(name + " 비밀번호를 초기화하면 기존 로그인은 끊깁니다. 협력사는 다음에 로그인할 때 비밀번호를 다시 설정합니다.", () => {
-      fetch(apiBase() + "/suppliers/" + encodeURIComponent(vendor.code) + "/password-reset", {
-        method: "POST",
-        headers: authHeaders(false)
-      })
-        .then(async (response) => {
-          const body = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(body.message || "비밀번호를 초기화하지 못했습니다.");
-          vendor.auth = "미인증";
-          syncListRow(vendor);
-          toast("비밀번호를 초기화했습니다. 협력사는 로그인할 때 비밀번호를 다시 설정합니다.");
+    confirmNotice(
+      name + " 비밀번호를 초기화하면 기존 로그인은 끊깁니다. 협력사는 다음에 로그인할 때 비밀번호를 다시 설정합니다.",
+      () => {
+        fetch(apiBase() + "/suppliers/" + encodeURIComponent(vendor.code) + "/password-reset", {
+          method: "POST",
+          headers: authHeaders(false)
         })
-        .catch((error) => toast(error.message || "비밀번호를 초기화하지 못했습니다."));
-    });
+          .then(async (response) => {
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(body.message || "비밀번호를 초기화하지 못했습니다.");
+            vendor.auth = "미인증";
+            syncListRow(vendor);
+            toast("비밀번호를 초기화했습니다. 협력사는 로그인할 때 비밀번호를 다시 설정합니다.");
+          })
+          .catch((error) => toast(error.message || "비밀번호를 초기화하지 못했습니다."));
+      },
+      "초기화"
+    );
   }
 
   function newAccount() {
@@ -1871,6 +1881,41 @@
         toast("발주를 취소했습니다.");
       })
       .catch((error) => toast(error.message || "발주를 취소하지 못했습니다."));
+  }
+
+  function removeOrderLocally(order) {
+    data.orders = data.orders.filter((row) => row !== order);
+    state.selectedId = firstId(filtered());
+    paintList();
+    paintDetail();
+    renderCommand();
+    paintTab();
+    renderStatus();
+  }
+
+  function deleteOrder() {
+    const order = selectedOrder();
+    if (!order || order.status !== "작성") return;
+    const label = order.id || "작성 문서";
+    confirmNotice(label + " 발주를 삭제할까요? 작성 중인 문서만 삭제되며 되돌릴 수 없습니다.", () => {
+      if (order.draft || !order.id) {
+        removeOrderLocally(order);
+        toast("작성 문서를 삭제했습니다.");
+        return;
+      }
+      fetch(apiBase() + "/orders/" + encodeURIComponent(order.id), {
+        method: "DELETE",
+        headers: authHeaders(false)
+      })
+        .then(async (response) => {
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(body.message || "발주를 삭제하지 못했습니다.");
+          if (body.audit) data.audit.unshift(body.audit);
+          removeOrderLocally(order);
+          toast("발주를 삭제했습니다.");
+        })
+        .catch((error) => toast(error.message || "발주를 삭제하지 못했습니다."));
+    }, "삭제");
   }
 
   function requestPrice() {

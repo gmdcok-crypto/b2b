@@ -940,6 +940,24 @@ def cancel_order(
     return envelope(published_order(db, row), audit)
 
 
+@router.delete("/orders/{doc_no}")
+def delete_order(
+    doc_no: str,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(db_session),
+) -> dict:
+    user = require_trade_buyer(authorization)
+    row = find_order(db, doc_no)
+    if row.status != "작성":
+        raise AppError("invalid_status", "작성 중인 발주만 삭제할 수 있습니다.")
+    target = row.doc_no
+    audit = add_audit(db, user=user, action="삭제", target=target, before="작성", after="")
+    db.delete(row)
+    db.commit()
+    db.refresh(audit)
+    return {"record": None, "audit": audit_public(audit)}
+
+
 @router.get("/audit")
 def list_audit(
     authorization: str | None = Header(default=None),
