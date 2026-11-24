@@ -178,12 +178,13 @@ def history_public(rows: list[PriceHistory], attachments: dict[int, PriceAttachm
     result = []
     for row in ordered:
         file = linked.get(row.id)
+        after_amount = row.before_amount if row.entry_type == "반려" and row.before_amount is not None else row.after_amount
         result.append(
             {
                 "date": row.entry_date.isoformat(),
                 "type": row.entry_type,
                 "before": "" if row.before_amount is None else row.before_amount,
-                "after": "" if row.after_amount is None else row.after_amount,
+                "after": "" if after_amount is None else after_amount,
                 "by": row.actor,
                 "note": row.note or "",
                 "attachment": attachment_public(file),

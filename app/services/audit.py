@@ -54,13 +54,15 @@ def add_audit(
 
 def audit_public(row: AuditLog) -> dict[str, str]:
     stamped = as_kst(row.logged_at) if row.logged_at.tzinfo else row.logged_at
+    before = row.before_text or ""
+    after = before if row.action == "반려" and before else (row.after_text or "")
     return {
         "at": stamped.strftime("%Y-%m-%d %H:%M"),
         "user": row.user_name,
         "action": row.action,
         "target": row.target,
-        "before": row.before_text or "",
-        "after": row.after_text or "",
+        "before": before,
+        "after": after,
         "note": row.note or "",
     }
 

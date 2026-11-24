@@ -363,3 +363,39 @@ def test_price_reject_keeps_before_and_after_same(auth_env, trade_client: TestCl
     assert reject_row["before"] == 1000
     assert reject_row["after"] == 1000
     assert "1,500" in reject_row["note"]
+
+
+def test_legacy_reject_history_and_audit_display_before_as_after() -> None:
+    from datetime import date, datetime
+
+    from app.models.catalog import AuditLog, PriceHistory
+    from app.routers.trade import history_public
+    from app.services.audit import audit_public
+
+    legacy_history = PriceHistory(
+        id=1,
+        price_id=1,
+        entry_date=date(2026, 11, 20),
+        entry_type="반려",
+        before_amount=1000,
+        after_amount=1500,
+        actor="승인자",
+        note="",
+    )
+    rendered = history_public([legacy_history])
+    assert rendered[0]["before"] == 1000
+    assert rendered[0]["after"] == 1000
+
+    legacy_audit = AuditLog(
+        id=1,
+        logged_at=datetime(2026, 11, 20, 10, 0),
+        user_name="승인자",
+        action="반려",
+        target="AL-1",
+        before_text="1,000",
+        after_text="1,500",
+        note="",
+    )
+    audit_row = audit_public(legacy_audit)
+    assert audit_row["before"] == "1,000"
+    assert audit_row["after"] == "1,000"
